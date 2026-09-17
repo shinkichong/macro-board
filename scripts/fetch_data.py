@@ -498,6 +498,52 @@ def _vkospi_openapi(day: str, key: str) -> float | None:
     return None
 
 
+def _drvprod_idx_value(day: str, key: str, idx_name: str) -> float | None:
+    """KRX 파생상품지수 일별시세에서 IDX_NM 이 정확히 일치하는 행의 종가.
+    (VKOSPI 는 이름이 조금씩 바뀌어 부분일치를 쓰지만, 국채선물지수류는
+    이름이 안정적이라 오탐 방지를 위해 정확히 일치하는 것만 고른다.)"""
+    url = S.KRX_OPENAPI_BASE + S.KRX_OPENAPI_PATH
+    try:
+        r = session.get(url, params={"basDd": day.replace("-", "")},
+                        headers={"AUTH_KEY": key}, timeout=TIMEOUT)
+        if r.status_code != 200:
+            return None
+        rows = r.json().get("OutBlock_1") or []
+    except Exception:
+        return None
+    for row in rows:
+        if row.get("IDX_NM") == idx_name:
+            raw = str(row.get("CLSPRC_IDX") or "").replace(",", "")
+            if raw and raw not in ("-", ""):
+                return float(raw)
+    return None
+
+
+def drvprod_index_series(prev_data: list[list] | None, idx_name: str, label: str) -> list[list]:
+    """파생상품지수 일별시세에서 임의의 지수를 하루씩 증분 수집한다 (VKOSPI 와 동일한 패턴).
+    과거치를 한 번에 적재할 무료 경로가 없어 처음 수집한 날부터 하루씩 쌓인다."""
+    have = {d: v for d, v in (prev_data or [])}
+    key = os.environ.get("KRX_API_KEY")
+    if not key:
+        if have:
+            return dedupe([[d, v] for d, v in have.items()])
+        raise RuntimeError(f"{label} 수집 실패: KRX_API_KEY 가 필요합니다.")
+
+    missing = _business_days_since(max(have) if have else None)
+    got = 0
+    for day in missing[-40:]:
+        v = _drvprod_idx_value(day, key, idx_name)
+        if v is not None:
+            have[day] = v
+            got += 1
+        time.sleep(0.25)
+    print(f"    오픈API 로 {got}일치 추가", flush=True)
+
+    if not have:
+        raise RuntimeError(f"{label} 수집 실패: 유효한 거래일 데이터가 없습니다.")
+    return dedupe([[d, v] for d, v in have.items()])
+
+
 def _vkospi_mdc(start: str, end: str) -> list[list]:
     """KRX 정보데이터시스템 내부 엔드포인트 — 기간 조회가 되어 과거치 적재에 쓴다."""
     last_err = None
@@ -522,6 +568,57 @@ def _vkospi_mdc(start: str, end: str) -> list[list]:
     if last_err:
         print(f"    정보데이터시스템 {start}~{end} 실패: {last_err}", flush=True)
     return []
+
+
+def _kospi200_opt_volumes(day: str, key: str) -> tuple[int, int] | None:
+    """코스피200 옵션(미니/위클리 제외) 콜·풋 당일 총 거래량 합계.
+    KRX 오픈API '옵션 일별매매정보 (주식옵션外)' — 종목별로 나오는 걸 PROD_NM 으로 필터해 더한다."""
+    url = S.KRX_OPENAPI_BASE + S.KRX_OPT_PATH
+    try:
+        r = session.get(url, params={"basDd": day.replace("-", "")},
+                        headers={"AUTH_KEY": key}, timeout=TIMEOUT)
+        if r.status_code != 200:
+            return None
+        rows = r.json().get("OutBlock_1") or []
+    except Exception:
+        return None
+    call_vol = sum(int(row.get("ACC_TRDVOL") or 0) for row in rows
+                   if row.get("PROD_NM") == S.KRX_OPT_PROD_NAME and row.get("RGHT_TP_NM") == "CALL")
+    put_vol = sum(int(row.get("ACC_TRDVOL") or 0) for row in rows
+                  if row.get("PROD_NM") == S.KRX_OPT_PROD_NAME and row.get("RGHT_TP_NM") == "PUT")
+    if call_vol == 0 and put_vol == 0:
+        return None      # 휴장일 등 — 거래된 게 없으면 그 날은 건너뛴다
+    return call_vol, put_vol
+
+
+def kospi200_option_pcr(prev_data: list[list] | None = None) -> list[list]:
+    """코스피200 옵션 풋/콜 거래량 비율(PUT/CALL 총거래량).
+
+    오픈API 가 하루치씩만 주기 때문에 VKOSPI 와 같은 방식으로, 이미 쌓인
+    데이터가 있으면 마지막 날짜 다음 영업일부터 하루씩만 채운다. 이 지표는
+    과거치를 한 번에 적재할 무료 경로가 없어 첫 실행부터 하루씩 쌓인다.
+    """
+    have = {d: v for d, v in (prev_data or [])}
+    key = os.environ.get("KRX_API_KEY")
+    if not key:
+        if have:
+            return dedupe([[d, v] for d, v in have.items()])
+        raise RuntimeError("코스피200 옵션 풋/콜 비율 수집 실패: KRX_API_KEY 가 필요합니다 "
+                           "('옵션 일별매매정보 (주식옵션外)' API 승인 필요).")
+
+    missing = _business_days_since(max(have) if have else None)
+    got = 0
+    for day in missing[-40:]:
+        vols = _kospi200_opt_volumes(day, key)
+        if vols and vols[0] > 0:
+            have[day] = round(vols[1] / vols[0], 4)
+            got += 1
+        time.sleep(0.25)
+    print(f"    오픈API 로 {got}일치 추가", flush=True)
+
+    if not have:
+        raise RuntimeError("코스피200 옵션 풋/콜 비율 수집 실패: 유효한 거래일 데이터가 없습니다.")
+    return dedupe([[d, v] for d, v in have.items()])
 
 
 def dedupe(rows: list[list]) -> list[list]:
@@ -667,6 +764,26 @@ def build_jobs(prev: dict) -> dict:
         threshold=20, below_is="good", freq="daily", source="KRX",
         source_url="http://data.krx.co.kr/",
         ref_url=S.VKOSPI_REF_URL, ref_label="값 대조")
+
+    jobs["kospi200_pcr"] = dict(
+        fn=(lambda: kospi200_option_pcr(prev.get("kospi200_pcr", {}).get("data"))),
+        name="코스피200 옵션 풋/콜 비율", unit="", decimals=3,
+        threshold=1, below_is="good", freq="daily", source="KRX",
+        source_url="",
+        note="코스피200 옵션(미니·위클리 제외) 콜·풋 당일 총 거래량 비율(PUT/CALL). "
+             "1보다 높으면 풋 거래가 더 많다는 뜻으로 통상 공포 신호로 해석됩니다.")
+
+    jobs["bond5y_futures"] = dict(
+        fn=(lambda: drvprod_index_series(prev.get("bond5y_futures", {}).get("data"),
+                                         "5년 국채선물 추종 지수", "5년 국채선물 추종 지수")),
+        name="5년 국채선물 추종 지수", unit="", decimals=2,
+        threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
+
+    jobs["bond10y_futures"] = dict(
+        fn=(lambda: drvprod_index_series(prev.get("bond10y_futures", {}).get("data"),
+                                         "10년국채선물지수", "10년국채선물지수")),
+        name="10년 국채선물지수", unit="", decimals=2,
+        threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
 
     return jobs
 

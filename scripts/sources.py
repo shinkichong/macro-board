@@ -140,6 +140,13 @@ KRX_OPENAPI_BASE = "https://data-dbg.krx.co.kr/svc/apis"
 KRX_OPENAPI_PATH = "/idx/drvprod_dd_trd"      # 파생상품지수 일별시세
 VKOSPI_NAME_MATCH = ("변동성지수", "VKOSPI")   # 응답 행에서 VKOSPI 를 골라내는 이름 조각
 
+# "옵션 일별매매정보 (주식옵션外)" — 종목(행사가·만기월)별 일별 거래량을 준다.
+# PROD_NM 이 "코스피200 옵션"인 것만 콜/풋으로 나눠 더하면 그날 콜·풋 총 거래량이 된다
+# (미니코스피200/위클리 옵션은 별도 상품이라 제외). KRX_API_KEY 승인 시 이 API도
+# 별도로 신청해야 한다. 승인 신청명: "옵션 일별매매정보 (주식옵션外)".
+KRX_OPT_PATH = "/drv/opt_bydd_trd"
+KRX_OPT_PROD_NAME = "코스피200 옵션"
+
 KRX_JSON_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
 KRX_REFERER = "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd"
 
@@ -167,7 +174,8 @@ LAYOUT = [
         "ust10y", "hy_yield", "yc_10y2y",
         "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
-    dict(group="국내 시장", keys=["kospi", "kosdaq", "vkospi"]),
+    dict(group="국내 시장", keys=["kospi", "kosdaq", "vkospi", "kospi200_pcr",
+                                "bond5y_futures", "bond10y_futures"]),
 ]
 
 # ─────────────────────────────────────────────────────────────
