@@ -854,8 +854,19 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="소스 점검만 하고 파일은 쓰지 않음")
     ap.add_argument("--only", help="쉼표로 구분한 지표 키만 갱신")
+    ap.add_argument("--group", help="sources.LAYOUT 의 그룹 이름만 갱신 (예: '미국 시장', '국내 시장')")
     a = ap.parse_args()
     only = set(a.only.split(",")) if a.only else None
+
+    if a.group:
+        grp = next((g for g in S.LAYOUT if g["group"] == a.group), None)
+        if not grp:
+            names = ", ".join(g["group"] for g in S.LAYOUT)
+            print(f"알 수 없는 그룹: '{a.group}' (사용 가능: {names})")
+            return 1
+        group_keys = set(grp["keys"])
+        only = (only & group_keys) if only else group_keys
+
     try:
         return run(only, a.check)
     except Exception:
