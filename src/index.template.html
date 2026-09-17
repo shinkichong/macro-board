@@ -231,6 +231,15 @@ function slice(data, years){
   return out.length > 2 ? out : data;
 }
 
+/* 상단 기간 선택(1년/3년/…)과 무관하게 항상 최근 N개월만 보여줄 때 쓴다. */
+function lastMonths(data, months){
+  const last = new Date(data[data.length - 1][0] + "T00:00:00Z");
+  last.setUTCMonth(last.getUTCMonth() - months);
+  const from = last.toISOString().slice(0, 10);
+  const out = data.filter(p => p[0] >= from);
+  return out.length > 2 ? out : data;
+}
+
 /* ── 차트 ──────────────────────────────────────────────────────────
    viewBox 를 카드 폭과 비슷한 눈금으로 잡아, 글자 크기가 화면 픽셀과
    거의 1:1 로 맞도록 했다.                                            */
@@ -308,6 +317,67 @@ function chartSVG(pts, opt){
   };
 }
 
+/* 듀얼축 차트 — 왼쪽축은 오실레이터(0 기준 위/아래 색 채움),
+   오른쪽축은 동반 지수가격을 얇은 점선으로 겹쳐 그린다.           */
+const VB2 = {w:340, h:118, t:9, r:40, b:19, l:32};
+
+function dualChartSVG(oscPts, pricePts, opt){
+  const n = oscPts.length;
+  const oscVals = oscPts.map(p => p[1]);
+  let oLo = Math.min(0, ...oscVals), oHi = Math.max(0, ...oscVals);
+  if(oHi === oLo){ oHi += 1; oLo -= 1; }
+  const oSpan = oHi - oLo; oLo -= oSpan * 0.12; oHi += oSpan * 0.12;
+
+  const priceVals = pricePts.map(p => p[1]);
+  let pLo = Math.min(...priceVals), pHi = Math.max(...priceVals);
+  if(pHi === pLo){ pHi += 1; pLo -= 1; }
+  const pSpan = pHi - pLo; pLo -= pSpan * 0.12; pHi += pSpan * 0.12;
+
+  const x  = i => VB2.l + (i / Math.max(1, n - 1)) * (VB2.w - VB2.l - VB2.r);
+  const yO = v => VB2.t + (1 - (v - oLo) / (oHi - oLo)) * (VB2.h - VB2.t - VB2.b);
+  const yP = v => VB2.t + (1 - (v - pLo) / (pHi - pLo)) * (VB2.h - VB2.t - VB2.b);
+  const zeroY = yO(0).toFixed(1);
+
+  const oscLine = oscPts.map((p, i) =>
+    `${i ? "L" : "M"}${x(i).toFixed(1)},${yO(p[1]).toFixed(1)}`).join("");
+  const oscArea = `${oscLine}L${x(n-1).toFixed(1)},${zeroY}L${x(0).toFixed(1)},${zeroY}Z`;
+  const priceLine = pricePts.map((p, i) =>
+    `${i ? "L" : "M"}${x(i).toFixed(1)},${yP(p[1]).toFixed(1)}`).join("");
+
+  const uid = "d" + Math.random().toString(36).slice(2, 9);
+  const defs = `<clipPath id="${uid}u"><rect x="0" y="0" width="${VB2.w}" height="${zeroY}"/></clipPath>
+                <clipPath id="${uid}d"><rect x="0" y="${zeroY}" width="${VB2.w}" height="${VB2.h}"/></clipPath>`;
+
+  const oGrid = [oLo, 0, oHi].map(v => {
+    const yy = yO(v).toFixed(1);
+    return `<text x="${VB2.l - 5}" y="${(+yy + 3.3).toFixed(1)}" font-size="9.5"
+                  text-anchor="end" fill="var(--ink-3)">${fmt(v, opt.decimals)}</text>`;
+  }).join("");
+  const pGrid = [pLo, pHi].map(v => {
+    const yy = yP(v).toFixed(1);
+    return `<text x="${VB2.w - VB2.r + 5}" y="${(+yy + 3.3).toFixed(1)}" font-size="9.5"
+                  fill="#b8860b">${fmt(v, opt.priceDecimals)}</text>`;
+  }).join("");
+
+  return {
+    markup:`<svg viewBox="0 0 ${VB2.w} ${VB2.h}" role="img" aria-label="${opt.label} 추이">
+      <defs>${defs}</defs>
+      <line x1="${VB2.l}" x2="${VB2.w - VB2.r}" y1="${zeroY}" y2="${zeroY}"
+            stroke="var(--ink-3)" stroke-width=".9" stroke-dasharray="4 3"/>
+      <path d="${oscArea}" fill="var(--good-soft)" clip-path="url(#${uid}u)"/>
+      <path d="${oscArea}" fill="var(--bad-soft)" clip-path="url(#${uid}d)"/>
+      <path d="${oscLine}" fill="none" stroke="var(--line)" stroke-width="1.5"
+            stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="${priceLine}" fill="none" stroke="#b8860b" stroke-width="1.2"
+            stroke-dasharray="3 2" opacity=".85"/>
+      ${oGrid}${pGrid}
+      <text x="${VB2.l}" y="${VB2.h - 4}" font-size="9.5" fill="var(--ink-3)">${shortDate(oscPts[0][0])}</text>
+      <text x="${VB2.w - VB2.r}" y="${VB2.h - 4}" font-size="9.5" text-anchor="end"
+            fill="var(--ink-3)">${shortDate(oscPts[n-1][0])}</text>
+    </svg>`
+  };
+}
+
 /* 표시 구간 각 점의 200일 이동평균. 구간 앞쪽도 끊기지 않도록
    전체 계열에서 계산한 뒤 표시 구간만 잘라 쓴다. */
 function movingAverage(full, pts, win){
@@ -323,8 +393,9 @@ function movingAverage(full, pts, win){
 
 /* ── 카드 ─────────────────────────────────────────────────────── */
 function card(key, s){
+  const isDual = s.kind === "dual";
   const full = activeData(s);
-  const pts = slice(full, STATE.years);
+  const pts = isDual ? lastMonths(full, 6) : slice(full, STATE.years);
   const {state, word} = judge(s, full);
   const [lastDate, lastVal] = full[full.length - 1];
   const prev = full[full.length - 2];
@@ -338,9 +409,12 @@ function card(key, s){
                     : `${d >= 0 ? "+" : ""}${fmt(d, s.decimals)}${s.unit}`;
   }
 
-  const c = chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,
-                           decimals:s.decimals, label:s.name,
-                           ma: isPrice ? movingAverage(full, pts, 200) : null});
+  const c = isDual
+    ? dualChartSVG(pts, lastMonths(s.price_data, 6),
+                   {decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name})
+    : chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,
+                     decimals:s.decimals, label:s.name,
+                     ma: isPrice ? movingAverage(full, pts, 200) : null});
 
   const fxToggle = s.fixed_fx ? `
     <div class="seg" role="group" aria-label="환율 처리 방식">
@@ -370,7 +444,7 @@ function card(key, s){
   el.querySelectorAll("[data-fx]").forEach(b => {
     b.onclick = () => { STATE.fx = b.dataset.fx; render(); };
   });
-  bindHover(el.querySelector(".chart"), pts, c, s);
+  if(!isDual) bindHover(el.querySelector(".chart"), pts, c, s);
   return el;
 }
 

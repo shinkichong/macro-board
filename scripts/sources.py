@@ -163,9 +163,21 @@ ISM_REF_URL = "https://kr.investing.com/economic-calendar/ism-manufacturing-pmi-
 # ─────────────────────────────────────────────────────────────
 LAYOUT = [
     dict(group="미국 시장", keys=[
-        "spx", "ndx", "fear_greed", "vix",
+        "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc", "vix",
         "ust10y", "hy_yield", "yc_10y2y",
         "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "vkospi"]),
 ]
+
+# ─────────────────────────────────────────────────────────────
+# 커스텀 Fear & Greed 오실레이터 (S&P500 / NASDAQ)
+#
+# src/미국 피어앤그리드 오실레이터_yahoo.txt 의 계산을 이식한 것.
+# 모멘텀·RSI·VIX·금리스프레드(10Y-5Y)·리스크선호(HYG/IEF)를 정규화해
+# 합성한 뒤 MACD 방식으로 오실레이터화한다. HYG/IEF 는 이 계산에만 쓰는
+# 보조 입력이라 따로 카드로 만들지 않는다.
+# ─────────────────────────────────────────────────────────────
+FG_HYG = dict(yahoo="HYG", stooq="hyg.us")
+FG_IEF = dict(yahoo="IEF", stooq="ief.us")
+FG_CALC_START = "2024-01-01"   # 원본 스크립트와 동일 — 정규화 기준 구간

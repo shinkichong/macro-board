@@ -298,6 +298,132 @@ def fear_greed() -> list[list]:
              round(float(p["y"]), 2)] for p in hist]
 
 
+# ══════════════════════════════════════════════════════════════
+# 커스텀 Fear & Greed 오실레이터 (S&P500 / NASDAQ)
+# src/미국 피어앤그리드 오실레이터_yahoo.txt 의 계산을 순수 파이썬으로 이식.
+# pandas/scikit-learn 없이 rolling·EWM·RSI·min-max 를 직접 구현한다.
+# ══════════════════════════════════════════════════════════════
+
+def _rolling_mean(vals: list[float], window: int) -> list[float | None]:
+    out: list[float | None] = [None] * len(vals)
+    s = 0.0
+    for i, v in enumerate(vals):
+        s += v
+        if i >= window:
+            s -= vals[i - window]
+        if i >= window - 1:
+            out[i] = s / window
+    return out
+
+
+def _rsi10(vals: list[float], window: int = 10) -> list[float | None]:
+    n = len(vals)
+    gain = [0.0] * n
+    loss = [0.0] * n
+    for i in range(1, n):
+        d = vals[i] - vals[i - 1]
+        gain[i] = d if d > 0 else 0.0
+        loss[i] = -d if d < 0 else 0.0
+    g, l = _rolling_mean(gain, window), _rolling_mean(loss, window)
+    out: list[float | None] = [None] * n
+    for i in range(n):
+        if g[i] is None:
+            continue
+        if l[i] == 0:
+            out[i] = 100.0 if g[i] > 0 else 50.0
+        else:
+            out[i] = 100 - 100 / (1 + g[i] / l[i])
+    return out
+
+
+def _ewm(vals: list[float | None], span: int) -> list[float | None]:
+    """pandas .ewm(span=span, adjust=False).mean() 과 동일한 재귀식."""
+    alpha = 2 / (span + 1)
+    out: list[float | None] = [None] * len(vals)
+    prev = None
+    for i, v in enumerate(vals):
+        if v is None:
+            continue
+        prev = v if prev is None else alpha * v + (1 - alpha) * prev
+        out[i] = prev
+    return out
+
+
+def _minmax(vals: list[float | None]) -> list[float | None]:
+    xs = [v for v in vals if v is not None]
+    lo, hi = min(xs), max(xs)
+    span = (hi - lo) or 1.0
+    return [None if v is None else (v - lo) / span for v in vals]
+
+
+_FG_CACHE: dict = {}
+
+
+def _compute_fear_greed_pair() -> dict:
+    """spx/ndx 각각의 (오실레이터, 동반 가격) 시리즈를 계산해 캐시한다.
+    두 카드가 같은 보조 입력(VIX·금리·HYG/IEF)을 공유하므로 한 번만 계산한다."""
+    if _FG_CACHE:
+        return _FG_CACHE
+
+    raw = {
+        "spx": index_series(S.INDICES["spx"]),
+        "ndx": index_series(S.INDICES["ndx"]),
+        "vix": fred("VIXCLS", S.FG_CALC_START),
+        "dgs10": fred("DGS10", S.FG_CALC_START),
+        "dgs5": fred("DGS5", S.FG_CALC_START),
+        "hyg": index_series(S.FG_HYG),
+        "ief": index_series(S.FG_IEF),
+    }
+    maps = {k: {d: v for d, v in vs if d >= S.FG_CALC_START} for k, vs in raw.items()}
+    common = set(maps["spx"])
+    for m in maps.values():
+        common &= set(m)
+    dates = sorted(common)
+    if len(dates) < 130:
+        raise RuntimeError(f"Fear&Greed 오실레이터: 공통 거래일이 {len(dates)}개뿐 — 계산 불가")
+    a = {k: [m[d] for d in dates] for k, m in maps.items()}
+
+    risk_appetite = [h / i for h, i in zip(a["hyg"], a["ief"])]
+    bond_spread = [t10 - t5 for t10, t5 in zip(a["dgs10"], a["dgs5"])]
+    vix_n = _minmax(a["vix"])
+    risk_n = _minmax(risk_appetite)
+    bond_n = _minmax(bond_spread)
+
+    def one(price: list[float]):
+        momentum = [None if m is None else (p - m) / m * 100
+                    for p, m in zip(price, _rolling_mean(price, 125))]
+        rsi_n = _minmax(_rsi10(price))
+        mom_n = _minmax(momentum)
+        fgi: list[float | None] = []
+        for mo, ri, vi, bo, rs in zip(mom_n, risk_n, vix_n, bond_n, rsi_n):
+            if None in (mo, ri, vi, bo, rs):
+                fgi.append(None)
+            else:
+                fgi.append(mo * 0.2 + ri * 0.2 + (1 - vi) * 0.2 + bo * 0.2 + rs * 0.2)
+        macd = [None if (m is None or l is None) else m - l
+                for m, l in zip(_ewm(fgi, 12), _ewm(fgi, 26))]
+        hist = [None if (m is None or s is None) else m - s
+                for m, s in zip(macd, _ewm(macd, 9))]
+        osc = [[d, round(v, 4)] for d, v in zip(dates, hist) if v is not None]
+        keep = {d for d, _ in osc}
+        pr = [[d, round(p, 2)] for d, p in zip(dates, price) if d in keep]
+        return osc, pr
+
+    _FG_CACHE["spx"] = one(a["spx"])
+    _FG_CACHE["ndx"] = one(a["ndx"])
+    return _FG_CACHE
+
+
+def fear_greed_osc_spx() -> tuple[list[list], dict]:
+    osc, price = _compute_fear_greed_pair()["spx"]
+    return osc, {"price_data": price}
+
+
+def fear_greed_osc_ndx() -> tuple[list[list], dict]:
+    osc, price = _compute_fear_greed_pair()["ndx"]
+    return osc, {"price_data": price}
+
+
 def vkospi(prev_data: list[list] | None = None) -> list[list]:
     """
     과거치는 KRX 정보데이터시스템에서 기간 조회로 한 번에 적재하고,
@@ -505,6 +631,21 @@ def build_jobs(prev: dict) -> dict:
         source_url="https://edition.cnn.com/markets/fear-and-greed",
         bands=[[0, 25, "극단적 공포"], [25, 45, "공포"], [45, 55, "중립"],
                [55, 75, "탐욕"], [75, 100, "극단적 탐욕"]])
+
+    fg_note = ("모멘텀·RSI·VIX·금리스프레드(10Y-5Y)·리스크선호(HYG/IEF) 5개를 정규화해 "
+               "합성한 뒤 MACD 방식으로 오실레이터화. 기간 선택과 무관하게 항상 최근 6개월만 표시.")
+    jobs["spx_fg_osc"] = dict(
+        fn=fear_greed_osc_spx, name="Fear & Greed 오실레이터 (S&P500)", unit="", decimals=3,
+        threshold=0, below_is="bad", freq="daily",
+        source="Yahoo Finance · FRED (커스텀 계산)", source_url="",
+        kind="dual", price_label="S&P500", price_unit="", price_decimals=0,
+        note=fg_note)
+    jobs["ndx_fg_osc"] = dict(
+        fn=fear_greed_osc_ndx, name="Fear & Greed 오실레이터 (NASDAQ)", unit="", decimals=3,
+        threshold=0, below_is="bad", freq="daily",
+        source="Yahoo Finance · FRED (커스텀 계산)", source_url="",
+        kind="dual", price_label="NASDAQ", price_unit="", price_decimals=0,
+        note=fg_note)
 
     jobs["oecd_cli"] = dict(
         fn=oecd_cli, name="OECD 경기선행지수 (미국)", unit="", decimals=2,
