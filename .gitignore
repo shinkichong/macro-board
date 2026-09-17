@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+data/_embed.json
+.DS_Store

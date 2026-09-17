@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>매크로 보드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#e9edf1; --surface:#fff; --surface-2:#f2f6f9; --rule:#d3dbe2;
+  --ink:#16232c; --ink-2:#566977; --ink-3:#8797a3;
+  --good:#1c7a58; --bad:#b0433e; --line:#34496b;
+  --good-soft:rgba(28,122,88,.15); --bad-soft:rgba(176,67,62,.15);
+  --line-soft:rgba(52,73,107,.11);
+  --focus:#2f6fd0; --shadow:0 1px 2px rgba(22,35,44,.07);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c161c; --surface:#13212a; --surface-2:#182a34; --rule:#243a47;
+    --ink:#dce8ef; --ink-2:#8ea6b3; --ink-3:#627d8b;
+    --good:#4dbe91; --bad:#e2726c; --line:#93b6dc;
+    --good-soft:rgba(77,190,145,.16); --bad-soft:rgba(226,114,108,.16);
+    --line-soft:rgba(147,182,220,.13);
+    --focus:#7fb0f0; --shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0c161c; --surface:#13212a; --surface-2:#182a34; --rule:#243a47;
+  --ink:#dce8ef; --ink-2:#8ea6b3; --ink-3:#627d8b;
+  --good:#4dbe91; --bad:#e2726c; --line:#93b6dc;
+  --good-soft:rgba(77,190,145,.16); --bad-soft:rgba(226,114,108,.16);
+  --line-soft:rgba(147,182,220,.13);
+  --focus:#7fb0f0; --shadow:0 1px 2px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans","IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif;
+  font-variant-numeric:tabular-nums; line-height:1.5;
+}
+:focus-visible{outline:2px solid var(--focus); outline-offset:2px; border-radius:3px}
+.wrap{max-width:1360px; margin:0 auto; padding:26px 20px 64px}
+
+.head{display:flex; flex-wrap:wrap; gap:12px 22px; align-items:baseline; margin-bottom:18px}
+.head h1{font-size:22px; font-weight:600; letter-spacing:-.015em; margin:0}
+.stamp{color:var(--ink-2); font-size:13px}
+.stamp b{color:var(--ink); font-weight:500}
+.tools{margin-left:auto; display:flex; gap:8px; align-items:center}
+.seg{display:flex; background:var(--surface); border:1px solid var(--rule); border-radius:7px; overflow:hidden}
+.seg button{
+  font:inherit; font-size:12.5px; padding:5px 11px; border:0; background:none;
+  color:var(--ink-2); cursor:pointer; border-right:1px solid var(--rule);
+}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink); color:var(--surface); font-weight:500}
+.icon-btn{
+  font:inherit; font-size:12.5px; padding:5px 11px; cursor:pointer; color:var(--ink-2);
+  background:var(--surface); border:1px solid var(--rule); border-radius:7px;
+}
+
+.demo-note{
+  display:flex; gap:9px; align-items:flex-start; margin-bottom:18px; padding:10px 13px;
+  border:1px solid var(--rule); border-left:3px solid var(--bad);
+  border-radius:6px; background:var(--surface); font-size:13px; color:var(--ink-2);
+}
+.demo-note b{color:var(--ink); font-weight:600}
+.demo-note code{
+  background:var(--surface-2); border:1px solid var(--rule);
+  padding:1px 5px; border-radius:3px; font-size:12px;
+}
+
+.strip{
+  display:flex; flex-wrap:wrap; gap:6px; padding:13px 14px; margin-bottom:26px;
+  background:var(--surface); border:1px solid var(--rule); border-radius:9px; box-shadow:var(--shadow);
+}
+.strip-count{
+  flex:0 0 auto; align-self:center; padding-right:14px; margin-right:6px;
+  border-right:1px solid var(--rule); font-size:13px; color:var(--ink-2); white-space:nowrap;
+}
+.strip-count b{font-size:17px; font-weight:600; color:var(--ink)}
+.tick{
+  display:flex; align-items:center; gap:6px; padding:4px 10px 4px 6px;
+  border:1px solid var(--rule); border-radius:999px; background:var(--surface-2);
+  font-size:12px; color:var(--ink-2); text-decoration:none;
+}
+.tick:hover{border-color:var(--ink-3)}
+.tick i{width:4px; height:13px; border-radius:2px; background:var(--ink-3)}
+.tick[data-state="good"] i{background:var(--good)}
+.tick[data-state="bad"] i{background:var(--bad)}
+
+.group{margin-bottom:34px}
+.group > h2{
+  font-size:14px; font-weight:600; margin:0 0 12px; color:var(--ink-2);
+  display:flex; align-items:center; gap:10px;
+}
+.group > h2::after{content:""; flex:1; height:1px; background:var(--rule)}
+.grid{display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
+
+.card{
+  position:relative; background:var(--surface); border:1px solid var(--rule);
+  border-radius:9px; padding:13px 15px 9px 17px; box-shadow:var(--shadow); overflow:hidden;
+}
+.card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--ink-3)}
+.card[data-state="good"]::before{background:var(--good)}
+.card[data-state="bad"]::before{background:var(--bad)}
+.card h3{font-size:13.5px; font-weight:500; margin:0; color:var(--ink-2)}
+.card-top{display:flex; align-items:flex-start; gap:10px}
+.card-top .seg{margin-left:auto; flex:0 0 auto}
+.card-top .seg button{padding:3px 8px; font-size:11.5px}
+
+.readout{display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; margin:3px 0 2px}
+.readout .now{font-size:26px; font-weight:600; letter-spacing:-.02em; line-height:1.15}
+.readout .delta{font-size:13px; font-weight:500}
+.readout .delta[data-dir="up"]{color:var(--good)}
+.readout .delta[data-dir="down"]{color:var(--bad)}
+.readout .tag{
+  font-size:11.5px; padding:2px 7px; border-radius:4px;
+  background:var(--surface-2); border:1px solid var(--rule); color:var(--ink-2);
+}
+.chart{position:relative; margin:4px 0 0}
+.chart svg{display:block; width:100%; height:auto}
+.card footer{
+  display:flex; justify-content:space-between; gap:10px; margin-top:6px; padding-top:7px;
+  border-top:1px solid var(--rule); font-size:11.5px; color:var(--ink-3);
+}
+.card footer a{color:inherit; text-decoration-color:var(--rule)}
+.card footer a:hover{color:var(--ink-2)}
+.stale{color:var(--bad); font-weight:500}
+.note{margin:4px 0 0; font-size:11.5px; color:var(--ink-3)}
+
+.tip{
+  position:absolute; pointer-events:none; opacity:0; transform:translate(-50%,-100%);
+  background:var(--ink); color:var(--surface); font-size:11.5px; line-height:1.35;
+  padding:5px 8px; border-radius:5px; white-space:nowrap; z-index:5;
+}
+.tip[data-on="1"]{opacity:1}
+@media (prefers-reduced-motion:no-preference){ .tip{transition:opacity .09s} }
+
+.empty{padding:46px; text-align:center; color:var(--ink-2)}
+@media (max-width:560px){
+  .wrap{padding:18px 13px 48px}
+  .readout .now{font-size:23px}
+  .grid{grid-template-columns:1fr}
+  .tools{margin-left:0}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <h1>매크로 보드</h1>
+    <div class="stamp" id="stamp"></div>
+    <div class="tools">
+      <div class="seg" id="ranges" role="group" aria-label="표시 기간"></div>
+      <button class="icon-btn" id="theme" type="button">테마 전환</button>
+    </div>
+  </header>
+
+  <div id="notice"></div>
+  <div class="strip" id="strip" hidden></div>
+  <main id="board"><div class="empty">데이터를 불러오는 중…</div></main>
+</div>
+
+<div class="tip" id="tip"></div>
+
+<script id="embedded" type="application/json">__EMBEDDED_DATA__</script>
+<script>
+"use strict";
+
+const RANGES = [["1년",1],["3년",3],["5년",5],["10년",10],["전체",null]];
+const STATE = { years: 3, data: null, fx: "usd" };
+
+const tip = document.getElementById("tip");
+const fmt = (v, d) => Number(v).toLocaleString("ko-KR",
+  {minimumFractionDigits:d, maximumFractionDigits:d});
+const shortDate = s => s.slice(2).replace(/-/g, ".");
+
+/* 저장소의 실데이터를 먼저 찾고, 없으면 내장 데모로 떨어진다. */
+async function load(){
+  try{
+    const r = await fetch("./data/macro.json", {cache:"no-store"});
+    if(r.ok) return await r.json();
+  }catch(_){ /* 수집 전이거나 file:// 로 연 경우 */ }
+  return JSON.parse(document.getElementById("embedded").textContent);
+}
+
+/* 이 카드가 지금 어느 계열을 그려야 하는지 — 글로벌 M2 만 환율 방식을 고를 수 있다. */
+const activeData = s =>
+  (s.fixed_fx && STATE.fx === "fixed") ? s.fixed_fx : s.data;
+
+/* 기준선이 있으면 기준선 대비, 없으면(주가지수) 200일 이동평균 대비로 판정. */
+function judge(s, full){
+  const v = full[full.length - 1][1];
+  if(s.threshold !== null && s.threshold !== undefined){
+    const below = v < s.threshold;
+    const state = (below === (s.below_is === "good")) ? "good" : "bad";
+    let word = `${fmt(s.threshold, s.decimals)} ${below ? "아래" : "위"}`;
+    if(s.bands){
+      const b = s.bands.find(([lo, hi]) => v >= lo && v < hi) || s.bands[s.bands.length - 1];
+      word = b[2];
+    }
+    return {state, word};
+  }
+  const closes = full.slice(-200).map(p => p[1]);
+  if(closes.length < 20) return {state:"neutral", word:""};
+  const ma = closes.reduce((a, b) => a + b, 0) / closes.length;
+  return {state: v >= ma ? "good" : "bad", word: `200일선 ${v >= ma ? "위" : "아래"}`};
+}
+
+function slice(data, years){
+  if(!years) return data;
+  const last = new Date(data[data.length - 1][0] + "T00:00:00Z");
+  last.setUTCFullYear(last.getUTCFullYear() - years);
+  const from = last.toISOString().slice(0, 10);
+  const out = data.filter(p => p[0] >= from);
+  return out.length > 2 ? out : data;
+}
+
+/* ── 차트 ──────────────────────────────────────────────────────────
+   viewBox 를 카드 폭과 비슷한 눈금으로 잡아, 글자 크기가 화면 픽셀과
+   거의 1:1 로 맞도록 했다.                                            */
+const VB = {w:340, h:118, t:9, r:40, b:19, l:4};
+
+function chartSVG(pts, opt){
+  const n = pts.length;
+  const vals = pts.map(p => p[1]);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const th = (opt.threshold === null || opt.threshold === undefined) ? null : opt.threshold;
+  if(th !== null){ lo = Math.min(lo, th); hi = Math.max(hi, th); }
+  if(hi === lo){ hi += 1; lo -= 1; }
+  const gridLo = lo, gridHi = hi, span = hi - lo;
+  lo -= span * 0.12; hi += span * 0.12;
+
+  const x = i => VB.l + (i / Math.max(1, n - 1)) * (VB.w - VB.l - VB.r);
+  const y = v => VB.t + (1 - (v - lo) / (hi - lo)) * (VB.h - VB.t - VB.b);
+
+  const line = pts.map((p, i) =>
+    `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
+  const base = th !== null ? y(th) : VB.h - VB.b;
+  const area = `${line}L${x(n-1).toFixed(1)},${base.toFixed(1)}L${x(0).toFixed(1)},${base.toFixed(1)}Z`;
+
+  const axisDec = Math.abs(gridHi) >= 1000 ? 0
+                : Math.abs(gridHi) >= 100  ? Math.min(opt.decimals, 1)
+                : opt.decimals;
+  const grid = [gridLo, (gridLo + gridHi) / 2, gridHi].map(v => {
+    const yy = y(v).toFixed(1);
+    return `<line x1="${VB.l}" x2="${VB.w - VB.r}" y1="${yy}" y2="${yy}"
+                  stroke="var(--rule)" stroke-width=".7"/>
+            <text x="${VB.w - VB.r + 5}" y="${(+yy + 3.3).toFixed(1)}" font-size="9.5"
+                  fill="var(--ink-3)">${fmt(v, axisDec)}</text>`;
+  }).join("");
+
+  const uid = "c" + Math.random().toString(36).slice(2, 9);
+  let fills = "";
+  let defs = `<clipPath id="${uid}p"><rect x="0" y="${VB.t}" width="${VB.w}"
+                                           height="${VB.h - VB.t - VB.b}"/></clipPath>`;
+  if(th !== null){
+    const up   = opt.belowIs === "good" ? "var(--bad-soft)"  : "var(--good-soft)";
+    const down = opt.belowIs === "good" ? "var(--good-soft)" : "var(--bad-soft)";
+    defs += `<clipPath id="${uid}u"><rect x="0" y="0" width="${VB.w}" height="${base.toFixed(1)}"/></clipPath>
+            <clipPath id="${uid}d"><rect x="0" y="${base.toFixed(1)}" width="${VB.w}" height="${VB.h}"/></clipPath>`;
+    fills = `<path d="${area}" fill="${up}" clip-path="url(#${uid}u)"/>
+             <path d="${area}" fill="${down}" clip-path="url(#${uid}d)"/>
+             <line x1="${VB.l}" x2="${VB.w - VB.r}" y1="${base.toFixed(1)}" y2="${base.toFixed(1)}"
+                   stroke="var(--ink-3)" stroke-width=".9" stroke-dasharray="4 3"/>`;
+  }else{
+    // 기준선이 없는 지수 차트. 초록은 "양호"로 읽히므로 중립색으로 채우고,
+    // 상태 배지가 근거로 삼는 200일 이동평균을 실제로 그려준다.
+    fills = `<path d="${area}" fill="var(--line-soft)"/>`;
+    if(opt.ma && opt.ma.length === n){
+      const mp = opt.ma.map((v, i) => v === null ? null :
+        `${x(i).toFixed(1)},${y(v).toFixed(1)}`).filter(Boolean);
+      if(mp.length > 1){
+        fills += `<polyline points="${mp.join(" ")}" fill="none" stroke="var(--ink-3)"
+                            stroke-width="1" stroke-dasharray="3 2.5" opacity=".8"
+                            clip-path="url(#${uid}p)"/>`;
+      }
+    }
+  }
+
+  return {
+    markup:`<svg viewBox="0 0 ${VB.w} ${VB.h}" role="img" aria-label="${opt.label} 추이">
+      <defs>${defs}</defs>${grid}${fills}
+      <path d="${line}" fill="none" stroke="var(--line)" stroke-width="1.5"
+            stroke-linejoin="round" stroke-linecap="round"/>
+      <line class="cross" x1="0" x2="0" y1="${VB.t}" y2="${VB.h - VB.b}"
+            stroke="var(--ink-3)" stroke-width=".9" opacity="0"/>
+      <circle class="dot" r="3" fill="var(--line)" opacity="0"/>
+      <text x="${VB.l}" y="${VB.h - 4}" font-size="9.5" fill="var(--ink-3)">${shortDate(pts[0][0])}</text>
+      <text x="${VB.w - VB.r}" y="${VB.h - 4}" font-size="9.5" text-anchor="end"
+            fill="var(--ink-3)">${shortDate(pts[n-1][0])}</text>
+    </svg>`, x, y, n
+  };
+}
+
+/* 표시 구간 각 점의 200일 이동평균. 구간 앞쪽도 끊기지 않도록
+   전체 계열에서 계산한 뒤 표시 구간만 잘라 쓴다. */
+function movingAverage(full, pts, win){
+  const idx = new Map(full.map((p, i) => [p[0], i]));
+  let sum = 0;
+  const ma = full.map((p, i) => {
+    sum += p[1];
+    if(i >= win) sum -= full[i - win][1];
+    return i >= win - 1 ? sum / win : null;
+  });
+  return pts.map(p => { const i = idx.get(p[0]); return i === undefined ? null : ma[i]; });
+}
+
+/* ── 카드 ─────────────────────────────────────────────────────── */
+function card(key, s){
+  const full = activeData(s);
+  const pts = slice(full, STATE.years);
+  const {state, word} = judge(s, full);
+  const [lastDate, lastVal] = full[full.length - 1];
+  const prev = full[full.length - 2];
+  const isPrice = s.threshold === null || s.threshold === undefined;
+
+  let delta = "", dir = "";
+  if(prev){
+    const d = lastVal - prev[1];
+    dir = d > 0 ? "up" : d < 0 ? "down" : "";
+    delta = isPrice ? `${d >= 0 ? "+" : ""}${(d / prev[1] * 100).toFixed(2)}%`
+                    : `${d >= 0 ? "+" : ""}${fmt(d, s.decimals)}${s.unit}`;
+  }
+
+  const c = chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,
+                           decimals:s.decimals, label:s.name,
+                           ma: isPrice ? movingAverage(full, pts, 200) : null});
+
+  const fxToggle = s.fixed_fx ? `
+    <div class="seg" role="group" aria-label="환율 처리 방식">
+      <button type="button" data-fx="usd"   aria-pressed="${STATE.fx === "usd"}">달러 환산</button>
+      <button type="button" data-fx="fixed" aria-pressed="${STATE.fx === "fixed"}">고정환율</button>
+    </div>` : "";
+
+  const el = document.createElement("article");
+  el.className = "card";
+  el.id = "card-" + key;
+  el.dataset.state = state;
+  el.innerHTML = `
+    <div class="card-top"><h3>${s.name}</h3>${fxToggle}</div>
+    <div class="readout">
+      <span class="now">${fmt(lastVal, s.decimals)}${s.unit}</span>
+      ${delta ? `<span class="delta" data-dir="${dir}">${delta}</span>` : ""}
+      ${word ? `<span class="tag">${word}</span>` : ""}
+    </div>
+    ${s.note ? `<p class="note">${s.note}</p>` : ""}
+    <div class="chart">${c.markup}</div>
+    <footer>
+      <span>${s.source}${s.ref_url
+        ? ` · <a href="${s.ref_url}" target="_blank" rel="noopener">${s.ref_label || "참고"}</a>` : ""}</span>
+      <span class="${s.stale ? "stale" : ""}">${s.stale ? "갱신 실패 · 직전 값 · " : ""}${lastDate}</span>
+    </footer>`;
+
+  el.querySelectorAll("[data-fx]").forEach(b => {
+    b.onclick = () => { STATE.fx = b.dataset.fx; render(); };
+  });
+  bindHover(el.querySelector(".chart"), pts, c, s);
+  return el;
+}
+
+function bindHover(box, pts, c, s){
+  const svg = box.querySelector("svg");
+  const cross = svg.querySelector(".cross");
+  const dot = svg.querySelector(".dot");
+
+  const move = e => {
+    const r = box.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const px = (clientX - r.left) / r.width * VB.w;
+    let i = Math.round((px - VB.l) / (VB.w - VB.l - VB.r) * (c.n - 1));
+    i = Math.max(0, Math.min(c.n - 1, i));
+    const [d, v] = pts[i];
+    const cx = c.x(i), cy = c.y(v);
+    cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.setAttribute("opacity", ".6");
+    dot.setAttribute("cx", cx); dot.setAttribute("cy", cy); dot.setAttribute("opacity", "1");
+    tip.textContent = `${d} · ${fmt(v, s.decimals)}${s.unit}`;
+    tip.style.left = (r.left + scrollX + cx / VB.w * r.width) + "px";
+    tip.style.top  = (r.top + scrollY + cy / VB.h * r.height - 8) + "px";
+    tip.dataset.on = "1";
+  };
+  const off = () => {
+    cross.setAttribute("opacity", "0");
+    dot.setAttribute("opacity", "0");
+    tip.dataset.on = "0";
+  };
+  box.addEventListener("mousemove", move);
+  box.addEventListener("mouseleave", off);
+  box.addEventListener("touchmove", move, {passive:true});
+  box.addEventListener("touchend", off);
+}
+
+/* ── 렌더 ─────────────────────────────────────────────────────── */
+function render(){
+  const d = STATE.data;
+  const board = document.getElementById("board");
+  const strip = document.getElementById("strip");
+  board.innerHTML = "";
+  strip.hidden = false;
+  strip.innerHTML = "";
+
+  const countEl = document.createElement("div");
+  countEl.className = "strip-count";
+  strip.appendChild(countEl);
+  let good = 0, total = 0;
+
+  for(const grp of d.layout){
+    const sec = document.createElement("section");
+    sec.className = "group";
+    sec.innerHTML = `<h2>${grp.group}</h2>`;
+    const grid = document.createElement("div");
+    grid.className = "grid";
+
+    for(const key of grp.keys){
+      const s = d.series[key];
+      if(!s || !s.data || !s.data.length) continue;
+      grid.appendChild(card(key, s));
+
+      total++;
+      const {state} = judge(s, activeData(s));
+      if(state === "good") good++;
+      const a = document.createElement("a");
+      a.className = "tick";
+      a.href = "#card-" + key;
+      a.dataset.state = state;
+      a.innerHTML = `<i></i>${s.name.replace(/\s*\(.*?\)/g, "")}`;
+      strip.appendChild(a);
+    }
+    sec.appendChild(grid);
+    board.appendChild(sec);
+  }
+  countEl.innerHTML = `<b>${good}</b> / ${total} 양호`;
+}
+
+/* ── 부팅 ─────────────────────────────────────────────────────── */
+(async function(){
+  const d = await load();
+  STATE.data = d;
+
+  document.getElementById("stamp").innerHTML =
+    `갱신 <b>${(d.generated_at || "").replace("T", " ").replace("Z", " UTC")}</b>`;
+
+  if(d.demo){
+    document.getElementById("notice").innerHTML =
+      `<div class="demo-note"><span aria-hidden="true">⚠</span><span>
+       <b>데모 데이터입니다.</b> 화면 확인용 난수이며 실제 시장 데이터가 아닙니다.
+       <code>python scripts/fetch_data.py</code> 를 한 번 돌리면 실데이터로 바뀝니다.
+       </span></div>`;
+  }
+
+  const rg = document.getElementById("ranges");
+  RANGES.forEach(([label, yrs]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.setAttribute("aria-pressed", String(yrs === STATE.years));
+    b.onclick = () => {
+      STATE.years = yrs;
+      [...rg.children].forEach(c => c.setAttribute("aria-pressed", String(c === b)));
+      render();
+    };
+    rg.appendChild(b);
+  });
+
+  const root = document.documentElement;
+  document.getElementById("theme").onclick = () => {
+    const sysDark = matchMedia("(prefers-color-scheme:dark)").matches;
+    const cur = root.dataset.theme || (sysDark ? "dark" : "light");
+    root.dataset.theme = cur === "dark" ? "light" : "dark";
+  };
+
+  render();
+  addEventListener("resize", () => { tip.dataset.on = "0"; });
+})();
+</script>
+</body>
+</html>
