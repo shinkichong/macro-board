@@ -632,20 +632,16 @@ def build_jobs(prev: dict) -> dict:
         bands=[[0, 25, "극단적 공포"], [25, 45, "공포"], [45, 55, "중립"],
                [55, 75, "탐욕"], [75, 100, "극단적 탐욕"]])
 
-    fg_note = ("모멘텀·RSI·VIX·금리스프레드(10Y-5Y)·리스크선호(HYG/IEF) 5개를 정규화해 "
-               "합성한 뒤 MACD 방식으로 오실레이터화. 기간 선택과 무관하게 항상 최근 6개월만 표시.")
     jobs["spx_fg_osc"] = dict(
         fn=fear_greed_osc_spx, name="Fear & Greed 오실레이터 (S&P500)", unit="", decimals=3,
         threshold=0, below_is="bad", freq="daily",
         source="Yahoo Finance · FRED (커스텀 계산)", source_url="",
-        kind="dual", price_label="S&P500", price_unit="", price_decimals=0,
-        note=fg_note)
+        kind="dual", price_label="S&P500", price_unit="", price_decimals=0)
     jobs["ndx_fg_osc"] = dict(
         fn=fear_greed_osc_ndx, name="Fear & Greed 오실레이터 (NASDAQ)", unit="", decimals=3,
         threshold=0, below_is="bad", freq="daily",
         source="Yahoo Finance · FRED (커스텀 계산)", source_url="",
-        kind="dual", price_label="NASDAQ", price_unit="", price_decimals=0,
-        note=fg_note)
+        kind="dual", price_label="NASDAQ", price_unit="", price_decimals=0)
 
     jobs["oecd_cli"] = dict(
         fn=oecd_cli, name="OECD 경기선행지수 (미국)", unit="", decimals=2,
