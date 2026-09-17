@@ -44,6 +44,10 @@ OUT = ROOT / "data" / "macro.json"
 START = "2005-01-01"          # 일별 계열 시작
 START_MONTHLY = "1995-01-01"  # 월별 계열 시작
 TIMEOUT = 45
+# data.krx.co.kr 의 비공식 내부 엔드포인트(정보데이터시스템)는 응답을 거부할 때도
+# 있지만, 클라우드 IP 에서는 아예 응답 없이 오래 물고 있는 경우가 많다.
+# 과거치 백필이 연도별 × 후보 2개로 여러 번 호출되므로 짧게 끊는다.
+KRX_MDC_TIMEOUT = 8
 
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -370,7 +374,7 @@ def _vkospi_mdc(start: str, end: str) -> list[list]:
         payload = {"bld": bld, "locale": "ko_KR", "strtDd": start, "endDd": end,
                    "share": "1", "money": "1", "csvxls_isNo": "false", **extra}
         try:
-            r = session.post(S.KRX_JSON_URL, data=payload, timeout=TIMEOUT,
+            r = session.post(S.KRX_JSON_URL, data=payload, timeout=KRX_MDC_TIMEOUT,
                              headers={"Referer": S.KRX_REFERER,
                                       "X-Requested-With": "XMLHttpRequest"})
             rows = r.json().get("output") or r.json().get("OutBlock_1") or []
