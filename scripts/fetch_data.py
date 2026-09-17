@@ -85,16 +85,16 @@ session.mount("https://", _LegacyTLSAdapter())
 # 공통 유틸
 # ══════════════════════════════════════════════════════════════
 
-def get(url: str, **kw) -> requests.Response:
+def get(url: str, *, timeout: int = TIMEOUT, retries: int = 3, **kw) -> requests.Response:
     """짧은 지수 백오프를 붙인 GET.
 
     stream=True 로 받는다 — 사내망 TLS 검사 프록시가 큰 응답을 한 번에
     내려받는 요청에서 연결을 끊는 경우가 있어, 스트리밍으로 우회한다.
     """
     last = None
-    for attempt in range(3):
+    for attempt in range(retries):
         try:
-            r = session.get(url, timeout=TIMEOUT, stream=True, **kw)
+            r = session.get(url, timeout=timeout, stream=True, **kw)
             if r.status_code == 200:
                 return r
             last = RuntimeError(f"HTTP {r.status_code} — {url[:110]}")
@@ -129,9 +129,14 @@ def yoy(pairs: list[list]) -> list[list]:
 # ══════════════════════════════════════════════════════════════
 
 def fred(series_id: str, start: str = START) -> list[list]:
-    """FRED. API 키 없이 fredgraph.csv 로 받는다."""
+    """FRED. API 키 없이 fredgraph.csv 로 받는다.
+
+    GitHub Actions 같은 클라우드 IP 대역에서는 FRED 가 응답 없이 45초씩
+    물고 있다가 실패하는 경우를 봐서(연결 자체는 되니 재시도해도 잘 안 풀린다),
+    타임아웃과 재시도 횟수를 짧게 줘서 실패할 때 빨리 넘어가게 한다.
+    """
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
-    rows = list(csv.reader(io.StringIO(get(url).text)))
+    rows = list(csv.reader(io.StringIO(get(url, timeout=15, retries=2).text)))
     out = []
     for r in rows[1:]:
         if len(r) < 2 or r[1] in (".", "", "NA"):
