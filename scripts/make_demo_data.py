@@ -69,6 +69,7 @@ SPEC = {
     "kospi":         daily(12, 1900, 0.00032, 17, floor=700),
     "kosdaq":        daily(12, 560, 0.00030, 7, floor=280),
     "vkospi":        daily(12, 16, 0, 0.8, floor=8, cap=70, mean_rev=17),
+    "kr_exports_yoy": monthly(18, 5.0, 1.8, 8.0, floor=-25, cap=40),
 }
 
 META = {
@@ -92,6 +93,8 @@ META = {
                           card_url="https://stock.naver.com/domestic/index/KOSDAQ/price"),
     "vkospi":        dict(name="VKOSPI", unit="", decimals=2, threshold=20, below_is="good", freq="daily", source="KRX",
                           ref_url="https://kr.investing.com/indices/kospi-volatility", ref_label="값 대조"),
+    "kr_exports_yoy": dict(name="한국 수출증가율 (YoY)", unit="%", decimals=2, threshold=0, below_is="bad", freq="monthly",
+                          source="FRED (OECD MEI 경유)"),
 }
 
 series = {}

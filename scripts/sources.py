@@ -178,7 +178,7 @@ LAYOUT = [
         "ust10y", "rate_hy_combo", "yc_10y2y",
         "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
-    dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr"]),
+    dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr", "kr_exports_yoy"]),
 ]
 
 # LAYOUT 에는 없지만(카드로 안 뜸) 그 그룹을 --group 으로 갱신할 때 같이 갱신해야 하는

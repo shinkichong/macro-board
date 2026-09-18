@@ -449,6 +449,16 @@ def rate_hy_combo(prev_rate: list[list] | None = None,
     return rate, {"price_data": spread}
 
 
+def kr_exports_yoy(prev_data: list[list] | None = None) -> list[list]:
+    """한국 수출증가율(YoY). OECD MEI 를 FRED 가 미러링하는 계열이라 언젠가
+    하이일드 스프레드처럼 최근 구간만 내려주는 식으로 막힐 수 있다.
+    그런 경우에도 과거치가 사라지지 않도록 이전 값과 병합해둔다."""
+    fresh = {d: v for d, v in fred("XTEXVA01KRM659S", START_MONTHLY)}
+    for d, v in (prev_data or []):
+        fresh.setdefault(d, v)
+    return [[d, fresh[d]] for d in sorted(fresh)]
+
+
 def vkospi(prev_data: list[list] | None = None) -> list[list]:
     """
     과거치는 KRX 정보데이터시스템에서 기간 조회로 한 번에 적재하고,
@@ -883,6 +893,13 @@ def build_jobs(prev: dict) -> dict:
         source="FRED · ECB · BOJ 합성",
         source_url="", note="미국·유로존·일본 M2 를 달러로 환산해 합산한 뒤 전년동월비. "
                             "중국은 소스 단절로 제외 (scripts/sources.py 참고)")
+
+    jobs["kr_exports_yoy"] = dict(
+        fn=(lambda: kr_exports_yoy(prev.get("kr_exports_yoy", {}).get("data"))),
+        name="한국 수출증가율 (YoY)", unit="%", decimals=2,
+        threshold=0, below_is="bad", freq="monthly",
+        source="FRED (OECD MEI 경유)",
+        source_url="https://fred.stlouisfed.org/series/XTEXVA01KRM659S")
 
     jobs["vkospi"] = dict(
         fn=(lambda: vkospi(prev.get("vkospi", {}).get("data"))),
