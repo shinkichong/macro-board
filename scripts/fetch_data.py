@@ -820,12 +820,14 @@ def build_jobs(prev: dict) -> dict:
         fn=fear_greed_osc_spx, name="Fear & Greed 오실레이터 (S&P500)", unit="", decimals=3,
         threshold=0, below_is="bad", freq="daily",
         source="Yahoo Finance · FRED (커스텀 계산)", source_url="",
-        kind="dual", price_label="S&P500", price_unit="", price_decimals=0)
+        kind="dual", price_label="S&P500", price_unit="", price_decimals=0,
+        fixed_period_months=6)
     jobs["ndx_fg_osc"] = dict(
         fn=fear_greed_osc_ndx, name="Fear & Greed 오실레이터 (NASDAQ)", unit="", decimals=3,
         threshold=0, below_is="bad", freq="daily",
         source="Yahoo Finance · FRED (커스텀 계산)", source_url="",
-        kind="dual", price_label="NASDAQ", price_unit="", price_decimals=0)
+        kind="dual", price_label="NASDAQ", price_unit="", price_decimals=0,
+        fixed_period_months=6)
 
     jobs["oecd_cli"] = dict(
         fn=oecd_cli, name="OECD 경기선행지수 (미국)", unit="", decimals=2,
@@ -856,7 +858,7 @@ def build_jobs(prev: dict) -> dict:
         fn=(lambda: kospi200_option_pcr(prev.get("kospi200_pcr", {}).get("data"))),
         name="코스피200 옵션 풋/콜 비율", unit="", decimals=3,
         threshold=1, below_is="good", freq="daily", source="KRX",
-        source_url="",
+        source_url="", fixed_period_months=6,
         note="코스피200 옵션(미니·위클리 제외) 콜·풋 당일 총 거래량 비율(PUT/CALL). "
              "1보다 높으면 풋 거래가 더 많다는 뜻으로 통상 공포 신호로 해석됩니다.")
 
@@ -887,7 +889,8 @@ def build_jobs(prev: dict) -> dict:
         name="Fear & Greed 오실레이터 (KOSPI)", unit="", decimals=3,
         threshold=0, below_is="bad", freq="daily",
         source="KRX (커스텀 계산)", source_url="",
-        kind="dual", price_label="KOSPI", price_unit="", price_decimals=0)
+        kind="dual", price_label="KOSPI", price_unit="", price_decimals=0,
+        fixed_period_months=6)
 
     return jobs
 

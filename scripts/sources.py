@@ -174,14 +174,15 @@ LAYOUT = [
         "ust10y", "hy_yield", "yc_10y2y",
         "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
-    dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr",
-                                "bond5y_futures", "bond10y_futures"]),
+    dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr"]),
 ]
 
 # LAYOUT 에는 없지만(카드로 안 뜸) 그 그룹을 --group 으로 갱신할 때 같이 갱신해야 하는
-# 내부 전용 시리즈. 코스피200 옵션 콜/풋 원거래량이 여기 해당 — kospi_fg_osc 계산에만 쓰인다.
+# 내부 전용 시리즈. 코스피200 옵션 콜/풋 원거래량과 국채선물지수 2종은 카드로
+# 노출하지 않지만 kospi_fg_osc 계산에 쓰여서 계속 수집은 해야 한다.
 INTERNAL_GROUP_EXTRAS = {
-    "국내 시장": {"kospi200_call_vol", "kospi200_put_vol"},
+    "국내 시장": {"kospi200_call_vol", "kospi200_put_vol",
+                "bond5y_futures", "bond10y_futures"},
 }
 
 # ─────────────────────────────────────────────────────────────

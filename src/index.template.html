@@ -82,25 +82,6 @@ body{
   padding:1px 5px; border-radius:3px; font-size:12px;
 }
 
-.strip{
-  display:flex; flex-wrap:wrap; gap:6px; padding:13px 14px; margin-bottom:26px;
-  background:var(--surface); border:1px solid var(--rule); border-radius:9px; box-shadow:var(--shadow);
-}
-.strip-count{
-  flex:0 0 auto; align-self:center; padding-right:14px; margin-right:6px;
-  border-right:1px solid var(--rule); font-size:13px; color:var(--ink-2); white-space:nowrap;
-}
-.strip-count b{font-size:17px; font-weight:600; color:var(--ink)}
-.tick{
-  display:flex; align-items:center; gap:6px; padding:4px 10px 4px 6px;
-  border:1px solid var(--rule); border-radius:999px; background:var(--surface-2);
-  font-size:12px; color:var(--ink-2); text-decoration:none;
-}
-.tick:hover{border-color:var(--ink-3)}
-.tick i{width:4px; height:13px; border-radius:2px; background:var(--ink-3)}
-.tick[data-state="good"] i{background:var(--good)}
-.tick[data-state="bad"] i{background:var(--bad)}
-
 .group{margin-bottom:34px}
 .group > h2{
   font-size:14px; font-weight:600; margin:0 0 12px; color:var(--ink-2);
@@ -172,7 +153,6 @@ body{
   <div class="market-tabs" id="marketTabs" role="tablist" aria-label="시장 구분"></div>
 
   <div id="notice"></div>
-  <div class="strip" id="strip" hidden></div>
   <main id="board"><div class="empty">데이터를 불러오는 중…</div></main>
 </div>
 
@@ -319,7 +299,7 @@ function chartSVG(pts, opt){
 
 /* 듀얼축 차트 — 사용자가 제공한 원본 matplotlib 캡처(FearGreed_sp500.png 등)를
    그대로 재현: 제목, 좌우 범례, 가로+세로 격자, 월별 x축 눈금, 회전된 축 이름표까지. */
-const VB2 = {w:400, h:280, t:16, r:56, b:30, l:46};
+const VB2 = {w:400, h:280, t:16, r:42, b:30, l:32};
 const OSC_COLOR = "#2f6fd0";
 const PRICE_COLOR = "#1c9a5b";
 
@@ -424,12 +404,6 @@ function dualChartSVG(oscPts, pricePts, opt){
   const legend = legendBox(VB2.l + 3, OSC_COLOR, opt.oscLegend, "start")
                + legendBox(VB2.w - VB2.r - 3, PRICE_COLOR, opt.priceLegend, "end");
 
-  const axisTitles = `
-    <text x="12" y="${(VB2.t + VB2.h - VB2.b) / 2}" font-size="8" text-anchor="middle"
-          fill="${OSC_COLOR}" transform="rotate(-90 12 ${(VB2.t + VB2.h - VB2.b) / 2})">Oscillator</text>
-    <text x="${VB2.w - 10}" y="${(VB2.t + VB2.h - VB2.b) / 2}" font-size="8" text-anchor="middle"
-          fill="${PRICE_COLOR}" transform="rotate(90 ${VB2.w - 10} ${(VB2.t + VB2.h - VB2.b) / 2})">${opt.priceLabel}</text>`;
-
   return {
     markup:`<svg viewBox="0 0 ${VB2.w} ${VB2.h}" role="img" aria-label="${opt.label} 추이">
       ${hGrid}${vGrid}
@@ -439,7 +413,7 @@ function dualChartSVG(oscPts, pricePts, opt){
             stroke-linejoin="round" stroke-linecap="round"/>
       <path d="${oscLine}" fill="none" stroke="${OSC_COLOR}" stroke-width="1.4"
             stroke-linejoin="round" stroke-linecap="round"/>
-      ${oLabels}${pLabels}${xLabels}${axisTitles}${legend}
+      ${oLabels}${pLabels}${xLabels}${legend}
     </svg>`
   };
 }
@@ -461,7 +435,7 @@ function movingAverage(full, pts, win){
 function card(key, s){
   const isDual = s.kind === "dual";
   const full = activeData(s);
-  const pts = isDual ? lastMonths(full, 6) : slice(full, STATE.years);
+  const pts = s.fixed_period_months ? lastMonths(full, s.fixed_period_months) : slice(full, STATE.years);
   const {state, word} = judge(s, full);
   const [lastDate, lastVal] = full[full.length - 1];
   const prev = full[full.length - 2];
@@ -476,7 +450,7 @@ function card(key, s){
   }
 
   const c = isDual
-    ? dualChartSVG(pts, lastMonths(s.price_data, 6), {
+    ? dualChartSVG(pts, lastMonths(s.price_data, s.fixed_period_months || 6), {
         decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name,
         priceLabel: `${s.price_label} Index`,
         oscLegend: `Fear & Greed Oscillator (${s.price_label})`,
@@ -553,15 +527,7 @@ function bindHover(box, pts, c, s){
 function render(){
   const d = STATE.data;
   const board = document.getElementById("board");
-  const strip = document.getElementById("strip");
   board.innerHTML = "";
-  strip.hidden = false;
-  strip.innerHTML = "";
-
-  const countEl = document.createElement("div");
-  countEl.className = "strip-count";
-  strip.appendChild(countEl);
-  let good = 0, total = 0;
 
   const groups = STATE.market === "all" ? d.layout : d.layout.filter(g => g.group === STATE.market);
   for(const grp of groups){
@@ -575,21 +541,10 @@ function render(){
       const s = d.series[key];
       if(!s || !s.data || !s.data.length) continue;
       grid.appendChild(card(key, s));
-
-      total++;
-      const {state} = judge(s, activeData(s));
-      if(state === "good") good++;
-      const a = document.createElement("a");
-      a.className = "tick";
-      a.href = "#card-" + key;
-      a.dataset.state = state;
-      a.innerHTML = `<i></i>${s.name.replace(/\s*\(.*?\)/g, "")}`;
-      strip.appendChild(a);
     }
     sec.appendChild(grid);
     board.appendChild(sec);
   }
-  countEl.innerHTML = `<b>${good}</b> / ${total} 양호`;
 }
 
 /* ── 부팅 ─────────────────────────────────────────────────────── */
