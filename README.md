@@ -57,7 +57,7 @@ data/macro.json           수집된 시계열
 | Fear & Greed | CNN `production.dataviz.cnn.io` | 비공식. 2020-08 이후만 |
 | VIX | FRED `VIXCLS` | |
 | 미국 10년물 | FRED `DGS10` | |
-| 하이일드 금리 | FRED `BAMLH0A0HYM2EY` | 스프레드를 보려면 `BAMLH0A0HYM2` |
+| 하이일드 스프레드 | FRED `BAMLH0A0HYM2` | 금리(Effective Yield)를 보려면 `BAMLH0A0HYM2EY` |
 | 장단기 금리차 | FRED `T10Y2Y` | 이미 계산된 계열 |
 | 글로벌 M2 증감율 | FRED + ECB + PBOC + BOJ 합성 | 아래 설명 참고 |
 | OECD 경기선행지수 | OECD SDMX | FRED 미러는 갱신 중단됨 |
@@ -107,6 +107,13 @@ ECB 는 약 한 달 지연 발표입니다.
 제공처 사정으로 바뀝니다. `--check` 가 후보 데이터셋을 출력해주니,
 확인한 ID 를 `scripts/sources.py` 의 `M2_COMPONENTS[...]["series_ids"]` 에 고정하고
 `scale` 도 함께 맞춰주세요. 값이 수십 배 어긋나 보이면 대개 `scale` 문제입니다.
+
+**하이일드 스프레드 (`BAMLH0A0HYM2`)** — ICE Data Indices 소유의 라이선스 계열이라
+FRED 무료 CSV 는 `cosd` 를 아무리 과거로 줘도 최근 ~3년치만 내려줍니다(그 이상은 ICE 승인 필요).
+그래서 `rate_hy_combo()` 는 새로 받은 값에 이전 실행에서 저장해둔 값을 병합합니다 —
+한 번 확보한 날짜는 FRED 창에서 밀려나도 우리 쪽 기록에 남아 시간이 지날수록 구간이 넓어집니다
+(다시 좁아지지는 않습니다). 다만 이 방식을 도입한 시점(2026-09-18, 2023-09-18~) 이전으로는
+거슬러 올라갈 수 없습니다.
 
 **OECD CLI** — SDMX 키 구조가 개편되면 후보 URL 이 전부 실패할 수 있습니다.
 [OECD Data Explorer](https://data-explorer.oecd.org/) 에서 원하는 계열을 고른 뒤

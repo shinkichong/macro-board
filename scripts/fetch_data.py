@@ -424,6 +424,31 @@ def fear_greed_osc_ndx() -> tuple[list[list], dict]:
     return osc, {"price_data": price}
 
 
+def rate_hy_combo(prev_rate: list[list] | None = None,
+                   prev_spread: list[list] | None = None) -> tuple[list[list], dict]:
+    """미국 10년물 국채금리와 하이일드 스프레드를 한 차트에 겹쳐 보기 위해
+    두 FRED 시리즈를 공통 날짜로 정렬한다.
+
+    BAMLH0A0HYM2 는 ICE Data Indices 라이선스 계열이라 FRED 무료 CSV 는
+    cosd 를 아무리 과거로 줘도 최근 ~3년치만 돌려준다(승인 없이는 그 이상 불가).
+    그래서 새로 받은 값과 이전에 저장해둔 값을 합쳐서 쓴다 — 한 번 확보한
+    날짜는 FRED 창에서 밀려나도 우리 쪽 기록에 남아, 시간이 지날수록
+    보이는 구간이 넓어진다(다시 좁아지지는 않는다).
+    """
+    ust10y = {d: v for d, v in fred(S.FRED["ust10y"]["id"])}
+    hy = {d: v for d, v in fred(S.FRED["hy_yield"]["id"])}
+    for d, v in (prev_rate or []):
+        ust10y.setdefault(d, v)
+    for d, v in (prev_spread or []):
+        hy.setdefault(d, v)
+    dates = sorted(set(ust10y) & set(hy))
+    if len(dates) < 30:
+        raise RuntimeError(f"국채금리·하이일드 스프레드: 공통 거래일이 {len(dates)}개뿐 — 계산 불가")
+    rate = [[d, ust10y[d]] for d in dates]
+    spread = [[d, hy[d]] for d in dates]
+    return rate, {"price_data": spread}
+
+
 def vkospi(prev_data: list[list] | None = None) -> list[list]:
     """
     과거치는 KRX 정보데이터시스템에서 기간 조회로 한 번에 적재하고,
@@ -807,7 +832,8 @@ def build_jobs(prev: dict) -> dict:
             fn=(lambda c=cfg: index_series(c)),
             name=cfg["name"], unit=cfg["unit"], decimals=cfg["decimals"],
             threshold=None, below_is=None,
-            freq="daily", source="Yahoo Finance / Stooq", source_url="")
+            freq="daily", source="Yahoo Finance / Stooq", source_url="",
+            card_url=cfg.get("card_url", ""))
 
     jobs["fear_greed"] = dict(
         fn=fear_greed, name="Fear & Greed", unit="", decimals=0,
@@ -821,13 +847,24 @@ def build_jobs(prev: dict) -> dict:
         threshold=0, below_is="bad", freq="daily",
         source="Yahoo Finance · FRED (커스텀 계산)", source_url="",
         kind="dual", price_label="S&P500", price_unit="", price_decimals=0,
+        osc_legend="Fear & Greed Oscillator (S&P500)", price_legend="S&P500 Index",
         fixed_period_months=6)
     jobs["ndx_fg_osc"] = dict(
         fn=fear_greed_osc_ndx, name="Fear & Greed 오실레이터 (NASDAQ)", unit="", decimals=3,
         threshold=0, below_is="bad", freq="daily",
         source="Yahoo Finance · FRED (커스텀 계산)", source_url="",
         kind="dual", price_label="NASDAQ", price_unit="", price_decimals=0,
+        osc_legend="Fear & Greed Oscillator (NASDAQ)", price_legend="NASDAQ Index",
         fixed_period_months=6)
+
+    jobs["rate_hy_combo"] = dict(
+        fn=(lambda: rate_hy_combo(prev.get("rate_hy_combo", {}).get("data"),
+                                   prev.get("rate_hy_combo", {}).get("price_data"))),
+        name="미국 10년물 국채금리 · 하이일드 스프레드", unit="%", decimals=2,
+        threshold=None, below_is=None, freq="daily", source="FRED",
+        source_url=f"https://fred.stlouisfed.org/series/{S.FRED['ust10y']['id']}",
+        kind="dual", price_label="하이일드 스프레드", price_unit="%p", price_decimals=2,
+        osc_legend="미국 10년물 국채금리 (%)", price_legend="하이일드 스프레드 (%p)")
 
     jobs["oecd_cli"] = dict(
         fn=oecd_cli, name="OECD 경기선행지수 (미국)", unit="", decimals=2,
@@ -890,6 +927,7 @@ def build_jobs(prev: dict) -> dict:
         threshold=0, below_is="bad", freq="daily",
         source="KRX (커스텀 계산)", source_url="",
         kind="dual", price_label="KOSPI", price_unit="", price_decimals=0,
+        osc_legend="Fear & Greed Oscillator (KOSPI)", price_legend="KOSPI Index",
         fixed_period_months=6)
 
     return jobs

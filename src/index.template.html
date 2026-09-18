@@ -98,6 +98,11 @@ body{
 .card[data-state="good"]::before{background:var(--good)}
 .card[data-state="bad"]::before{background:var(--bad)}
 .card h3{font-size:13.5px; font-weight:500; margin:0; color:var(--ink-2)}
+.card h3 .ext{font-size:11px; font-weight:400; color:var(--ink-3)}
+.card.clickable{cursor:pointer}
+.card.clickable:hover{border-color:var(--ink-3)}
+.card.clickable:hover h3 .ext{color:var(--ink-2)}
+.card.clickable:focus-visible{outline:2px solid var(--ink-3); outline-offset:2px}
 .card-top{display:flex; align-items:flex-start; gap:10px}
 .card-top .seg{margin-left:auto; flex:0 0 auto}
 .card-top .seg button{padding:3px 8px; font-size:11.5px}
@@ -435,7 +440,7 @@ function movingAverage(full, pts, win){
 function card(key, s){
   const isDual = s.kind === "dual";
   const full = activeData(s);
-  const pts = s.fixed_period_months ? lastMonths(full, s.fixed_period_months) : slice(full, STATE.years);
+  let pts = s.fixed_period_months ? lastMonths(full, s.fixed_period_months) : slice(full, STATE.years);
   const {state, word} = judge(s, full);
   const [lastDate, lastVal] = full[full.length - 1];
   const prev = full[full.length - 2];
@@ -449,13 +454,19 @@ function card(key, s){
                     : `${d >= 0 ? "+" : ""}${fmt(d, s.decimals)}${s.unit}`;
   }
 
+  // 듀얼 차트는 두 시리즈의 실제 보유 기간이 다를 수 있어(예: 한쪽 소스가 더 짧은
+  // 역사만 제공) 더 늦게 시작하는 쪽 날짜로 둘 다 잘라 길이를 맞춘다.
+  let pricePts;
+  if(isDual){
+    pricePts = s.fixed_period_months ? lastMonths(s.price_data, s.fixed_period_months) : slice(s.price_data, STATE.years);
+    const from = pts[0][0] > pricePts[0][0] ? pts[0][0] : pricePts[0][0];
+    pts = pts.filter(p => p[0] >= from);
+    pricePts = pricePts.filter(p => p[0] >= from);
+  }
+
   const c = isDual
-    ? dualChartSVG(pts, lastMonths(s.price_data, s.fixed_period_months || 6), {
-        decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name,
-        priceLabel: `${s.price_label} Index`,
-        oscLegend: `Fear & Greed Oscillator (${s.price_label})`,
-        priceLegend: `${s.price_label} Index`,
-      })
+    ? dualChartSVG(pts, pricePts, {decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name,
+        oscLegend: s.osc_legend, priceLegend: s.price_legend})
     : chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,
                      decimals:s.decimals, label:s.name,
                      ma: isPrice ? movingAverage(full, pts, 200) : null});
@@ -471,7 +482,7 @@ function card(key, s){
   el.id = "card-" + key;
   el.dataset.state = state;
   el.innerHTML = `
-    <div class="card-top"><h3>${s.name}</h3>${fxToggle}</div>
+    <div class="card-top"><h3>${s.name}${s.card_url ? ` <span class="ext" aria-hidden="true">↗</span>` : ""}</h3>${fxToggle}</div>
     <div class="readout">
       <span class="now">${fmt(lastVal, s.decimals)}${s.unit}</span>
       ${delta ? `<span class="delta" data-dir="${dir}">${delta}</span>` : ""}
@@ -489,6 +500,20 @@ function card(key, s){
     b.onclick = () => { STATE.fx = b.dataset.fx; render(); };
   });
   if(!isDual) bindHover(el.querySelector(".chart"), pts, c, s);
+
+  if(s.card_url){
+    el.classList.add("clickable");
+    el.tabIndex = 0;
+    el.setAttribute("role", "link");
+    el.setAttribute("aria-label", `${s.name} — 네이버 금융에서 자세히 보기 (새 탭)`);
+    const go = () => window.open(s.card_url, "_blank", "noopener");
+    el.addEventListener("click", e => { if(!e.target.closest("a,button")) go(); });
+    el.addEventListener("keydown", e => {
+      if((e.key === "Enter" || e.key === " ") && !e.target.closest("a,button")){
+        e.preventDefault(); go();
+      }
+    });
+  }
   return el;
 }
 

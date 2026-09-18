@@ -16,7 +16,7 @@ decimals   : 표시 소수점 자리
 FRED = {
     "vix":        dict(id="VIXCLS",           name="VIX 지수",            unit="",   decimals=2, threshold=20,  below_is="good"),
     "ust10y":     dict(id="DGS10",            name="미국 10년물 국채금리", unit="%",  decimals=2, threshold=None, below_is=None),
-    "hy_yield":   dict(id="BAMLH0A0HYM2EY",   name="미국 하이일드 금리",   unit="%",  decimals=2, threshold=None, below_is=None),
+    "hy_yield":   dict(id="BAMLH0A0HYM2",     name="미국 하이일드 스프레드", unit="%p", decimals=2, threshold=None, below_is=None),
     "yc_10y2y":   dict(id="T10Y2Y",           name="장단기 금리차 (10Y-2Y)", unit="%p", decimals=2, threshold=0,  below_is="bad"),
 }
 
@@ -24,10 +24,14 @@ FRED = {
 # 주가지수: Yahoo v8 chart → 실패 시 Stooq CSV
 # ─────────────────────────────────────────────────────────────
 INDICES = {
-    "spx":    dict(yahoo="^GSPC", stooq="^spx",  name="S&P 500",  unit="",   decimals=0),
-    "ndx":    dict(yahoo="^IXIC", stooq="^ndq",  name="나스닥 종합", unit="",   decimals=0),
-    "kospi":  dict(yahoo="^KS11", stooq="^kospi",  name="코스피",  unit="",   decimals=2),
-    "kosdaq": dict(yahoo="^KQ11", stooq="^kosdaq", name="코스닥",  unit="",   decimals=2),
+    "spx":    dict(yahoo="^GSPC", stooq="^spx",  name="S&P 500",  unit="",   decimals=0,
+                   card_url="https://stock.naver.com/worldstock/index/.INX/price"),
+    "ndx":    dict(yahoo="^IXIC", stooq="^ndq",  name="나스닥 종합", unit="",   decimals=0,
+                   card_url="https://stock.naver.com/worldstock/index/.IXIC/price"),
+    "kospi":  dict(yahoo="^KS11", stooq="^kospi",  name="코스피",  unit="",   decimals=2,
+                   card_url="https://stock.naver.com/domestic/index/KOSPI/price"),
+    "kosdaq": dict(yahoo="^KQ11", stooq="^kosdaq", name="코스닥",  unit="",   decimals=2,
+                   card_url="https://stock.naver.com/domestic/index/KOSDAQ/price"),
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -171,7 +175,7 @@ ISM_REF_URL = "https://kr.investing.com/economic-calendar/ism-manufacturing-pmi-
 LAYOUT = [
     dict(group="미국 시장", keys=[
         "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc", "vix",
-        "ust10y", "hy_yield", "yc_10y2y",
+        "ust10y", "rate_hy_combo", "yc_10y2y",
         "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr"]),
