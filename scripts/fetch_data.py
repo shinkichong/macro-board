@@ -621,6 +621,93 @@ def kospi200_option_pcr(prev_data: list[list] | None = None) -> list[list]:
     return dedupe([[d, v] for d, v in have.items()])
 
 
+def kospi200_option_volume(prev_data: list[list] | None, side: str) -> list[list]:
+    """코스피200 옵션 콜 또는 풋의 당일 총 거래량을 하루씩 증분 수집한다.
+    kospi200_pcr 과 같은 API 를 쓰지만 원거래량 자체를 저장해둬야
+    KOSPI Fear&Greed 오실레이터의 5일 이동평균 계산에 쓸 수 있다."""
+    have = {d: v for d, v in (prev_data or [])}
+    key = os.environ.get("KRX_API_KEY")
+    if not key:
+        if have:
+            return dedupe([[d, v] for d, v in have.items()])
+        raise RuntimeError(f"코스피200 옵션 {side} 거래량 수집 실패: KRX_API_KEY 가 필요합니다.")
+
+    idx = 0 if side == "call" else 1
+    missing = _business_days_since(max(have) if have else None)
+    got = 0
+    for day in missing[-40:]:
+        vols = _kospi200_opt_volumes(day, key)
+        if vols is not None:
+            have[day] = vols[idx]
+            got += 1
+        time.sleep(0.25)
+    print(f"    오픈API 로 {got}일치 추가", flush=True)
+
+    if not have:
+        raise RuntimeError(f"코스피200 옵션 {side} 거래량 수집 실패: 유효한 거래일 데이터가 없습니다.")
+    return dedupe([[d, v] for d, v in have.items()])
+
+
+def kospi_fear_greed_osc(prev: dict) -> tuple[list[list], dict]:
+    """KOSPI Fear & Greed 오실레이터.
+
+    VKOSPI·국채선물지수·옵션거래량은 하루치씩만 커버되는 공식 API 로 채워지므로,
+    매번 새로 전체 이력을 받아오는 대신 이미 data/macro.json 에 누적된 각
+    시리즈의 이력을 그대로 읽어와 계산한다 (KOSPI 자체는 Yahoo/Stooq 로 전체
+    이력이 항상 있지만, 나머지 4개가 짧으면 그만큼만 계산된다).
+
+    계산식은 D:\\06.DEV\\02.P_DEV\\06.매크로\\create_kospi_chart.py 의
+    calculate_fear_greed / calculate_macd 를 그대로 이식한 것이다.
+    """
+    kospi = dict(prev.get("kospi", {}).get("data", []))
+    vkospi = dict(prev.get("vkospi", {}).get("data", []))
+    b5 = dict(prev.get("bond5y_futures", {}).get("data", []))
+    b10 = dict(prev.get("bond10y_futures", {}).get("data", []))
+    call = dict(prev.get("kospi200_call_vol", {}).get("data", []))
+    put = dict(prev.get("kospi200_put_vol", {}).get("data", []))
+
+    dates = sorted(set(kospi) & set(vkospi) & set(b5) & set(b10) & set(call) & set(put))
+    if len(dates) < 30:
+        raise RuntimeError(f"KOSPI Fear&Greed 오실레이터: 공통 거래일이 {len(dates)}개뿐이라 "
+                           "계산할 수 없습니다 (VKOSPI/국채선물/옵션거래량 이력이 더 쌓여야 함).")
+
+    kospi_v = [kospi[d] for d in dates]
+    vkospi_v = [vkospi[d] for d in dates]
+    spread_v = [b10[d] - b5[d] for d in dates]
+    call_v = [call[d] for d in dates]
+    put_v = [put[d] for d in dates]
+
+    call_ma5 = _rolling_mean(call_v, 5)
+    put_ma5 = _rolling_mean(put_v, 5)
+    pcr = [None if (c is None or not c) else p / c for c, p in zip(call_ma5, put_ma5)]
+
+    momentum = [None if m is None else (k - m) / m * 100
+                for k, m in zip(kospi_v, _rolling_mean(kospi_v, 125))]
+    rsi = _rsi10(kospi_v)
+
+    mom_n, pcr_n = _minmax(momentum), _minmax(pcr)
+    vix_n, spread_n, rsi_n = _minmax(vkospi_v), _minmax(spread_v), _minmax(rsi)
+
+    fgi: list[float | None] = []
+    for mo, pc, vi, sp, rs in zip(mom_n, pcr_n, vix_n, spread_n, rsi_n):
+        if None in (mo, pc, vi, sp, rs):
+            fgi.append(None)
+        else:
+            fgi.append(mo * 0.2 + (1 - pc) * 0.2 + (1 - vi) * 0.2 + sp * 0.2 + rs * 0.2)
+
+    macd = [None if (m is None or l is None) else m - l
+            for m, l in zip(_ewm(fgi, 12), _ewm(fgi, 26))]
+    hist = [None if (m is None or s is None) else m - s
+            for m, s in zip(macd, _ewm(macd, 9))]
+
+    osc = [[d, round(v, 5)] for d, v in zip(dates, hist) if v is not None]
+    keep = {d for d, _ in osc}
+    price = [[d, round(p, 2)] for d, p in zip(dates, kospi_v) if d in keep]
+    if not osc:
+        raise RuntimeError("KOSPI Fear&Greed 오실레이터: 계산 결과가 비어 있습니다.")
+    return osc, {"price_data": price}
+
+
 def dedupe(rows: list[list]) -> list[list]:
     """날짜 오름차순 정렬 + 중복 날짜 제거."""
     seen, out = set(), []
@@ -785,6 +872,23 @@ def build_jobs(prev: dict) -> dict:
         name="10년 국채선물지수", unit="", decimals=2,
         threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
 
+    # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
+    jobs["kospi200_call_vol"] = dict(
+        fn=(lambda: kospi200_option_volume(prev.get("kospi200_call_vol", {}).get("data"), "call")),
+        name="코스피200 옵션 콜 거래량 (내부용)", unit="", decimals=0,
+        threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
+    jobs["kospi200_put_vol"] = dict(
+        fn=(lambda: kospi200_option_volume(prev.get("kospi200_put_vol", {}).get("data"), "put")),
+        name="코스피200 옵션 풋 거래량 (내부용)", unit="", decimals=0,
+        threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
+
+    jobs["kospi_fg_osc"] = dict(
+        fn=(lambda: kospi_fear_greed_osc(prev)),
+        name="Fear & Greed 오실레이터 (KOSPI)", unit="", decimals=3,
+        threshold=0, below_is="bad", freq="daily",
+        source="KRX (커스텀 계산)", source_url="",
+        kind="dual", price_label="KOSPI", price_unit="", price_decimals=0)
+
     return jobs
 
 
@@ -864,7 +968,7 @@ def main() -> int:
             names = ", ".join(g["group"] for g in S.LAYOUT)
             print(f"알 수 없는 그룹: '{a.group}' (사용 가능: {names})")
             return 1
-        group_keys = set(grp["keys"])
+        group_keys = set(grp["keys"]) | S.INTERNAL_GROUP_EXTRAS.get(a.group, set())
         only = (only & group_keys) if only else group_keys
 
     try:
