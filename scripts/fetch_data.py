@@ -449,6 +449,37 @@ def rate_hy_combo(prev_rate: list[list] | None = None,
     return rate, {"price_data": spread}
 
 
+def real_policy_rate() -> list[list]:
+    """실질 정책금리 = 정책금리(Fed Funds 목표범위 중간값) - 헤드라인 PCE(YoY).
+
+    정책금리는 FOMC 가 바꿀 때만 계단식으로 움직이는 일별 계열이고, PCE 는
+    1~2개월 늦게 발표되는 월별 계열이라 둘의 발표 시점이 다르다. 아직 발표되지
+    않은 최근 달은 마지막으로 발표된 PCE 값을 그대로 이어 쓴다 — "지금 정책금리
+    대비 가장 최근에 나온 물가"를 보는 실무 관행과 같다.
+    """
+    upper = {d: v for d, v in fred("DFEDTARU", START_MONTHLY)}
+    lower = {d: v for d, v in fred("DFEDTARL", START_MONTHLY)}
+    monthly_rate = {}
+    for d in sorted(set(upper) & set(lower)):
+        monthly_rate[d[:7]] = (upper[d] + lower[d]) / 2  # 그 달 마지막 값이 남는다(오름차순)
+
+    pce_by_month = {d[:7]: v for d, v in yoy(fred("PCEPI", START_MONTHLY))}
+    pce_months = sorted(pce_by_month)
+
+    out = []
+    idx, pce_val = 0, None
+    for m in sorted(monthly_rate):
+        while idx < len(pce_months) and pce_months[idx] <= m:
+            pce_val = pce_by_month[pce_months[idx]]
+            idx += 1
+        if pce_val is None:
+            continue
+        out.append([f"{m}-01", round(monthly_rate[m] - pce_val, 3)])
+    if len(out) < 12:
+        raise RuntimeError(f"실질 정책금리: 계산 가능한 달이 {len(out)}개뿐 — 계산 불가")
+    return out
+
+
 def kr_exports_yoy(prev_data: list[list] | None = None) -> list[list]:
     """한국 수출증가율(YoY). OECD MEI 를 FRED 가 미러링하는 계열이라 언젠가
     하이일드 스프레드처럼 최근 구간만 내려주는 식으로 막힐 수 있다.
@@ -885,7 +916,7 @@ def build_jobs(prev: dict) -> dict:
         fn=ism_pmi, name="ISM 제조업지수", unit="", decimals=1,
         threshold=50, below_is="bad", freq="monthly", source="ISM (DBnomics 경유)",
         source_url="https://db.nomics.world/ISM/pmi",
-        ref_url=S.ISM_REF_URL, ref_label="값 대조")
+        ref_url=S.ISM_REF_URL, ref_label="값 대조", card_url=S.ISM_REF_URL)
 
     jobs["global_m2_yoy"] = dict(
         fn=global_m2, name="글로벌 M2 증감율 (YoY, 중국 제외)", unit="%", decimals=2,
@@ -893,6 +924,21 @@ def build_jobs(prev: dict) -> dict:
         source="FRED · ECB · BOJ 합성",
         source_url="", note="미국·유로존·일본 M2 를 달러로 환산해 합산한 뒤 전년동월비. "
                             "중국은 소스 단절로 제외 (scripts/sources.py 참고)")
+
+    jobs["us_cpi_yoy"] = dict(
+        fn=(lambda: yoy(fred("CPIAUCNS", START_MONTHLY))),
+        name="미국 CPI (YoY)", unit="%", decimals=2,
+        threshold=2, below_is="good", freq="monthly", source="FRED",
+        source_url="https://fred.stlouisfed.org/series/CPIAUCNS",
+        note="연준 물가안정 목표(2%) 기준. 계절조정 전(NSA) 지수로 계산한 전년동월비")
+
+    jobs["real_policy_rate"] = dict(
+        fn=real_policy_rate, name="실질 정책금리 (정책금리 - 헤드라인 PCE)", unit="%p", decimals=2,
+        threshold=0, below_is="bad", freq="monthly",
+        source="FRED (Fed Funds 목표범위 + PCEPI 합성)",
+        source_url="https://fred.stlouisfed.org/series/DFEDTARU",
+        note="정책금리는 Fed Funds 목표범위 중간값, 물가는 헤드라인 PCE 전년동월비. "
+             "PCE 발표가 늦어 아직 안 나온 최근 달은 마지막 발표치를 그대로 사용")
 
     jobs["kr_exports_yoy"] = dict(
         fn=(lambda: kr_exports_yoy(prev.get("kr_exports_yoy", {}).get("data"))),

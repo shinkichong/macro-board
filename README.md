@@ -59,6 +59,8 @@ data/macro.json           수집된 시계열
 | 미국 10년물 | FRED `DGS10` | |
 | 하이일드 스프레드 | FRED `BAMLH0A0HYM2` | 금리(Effective Yield)를 보려면 `BAMLH0A0HYM2EY` |
 | 장단기 금리차 | FRED `T10Y2Y` | 이미 계산된 계열 |
+| 미국 CPI (YoY) | FRED `CPIAUCNS` | 계절조정 전(NSA) 지수로 직접 전년동월비 계산 |
+| 실질 정책금리 | FRED `DFEDTARU`/`DFEDTARL` + `PCEPI` 합성 | 정책금리(목표범위 중간값) - 헤드라인 PCE(YoY). 기준선 0 |
 | 글로벌 M2 증감율 | FRED + ECB + PBOC + BOJ 합성 | 아래 설명 참고 |
 | OECD 경기선행지수 | OECD SDMX | FRED 미러는 갱신 중단됨 |
 | ISM 제조업지수 | DBnomics `ISM/pmi/pm` | 2016년 FRED 에서 삭제됨 |
