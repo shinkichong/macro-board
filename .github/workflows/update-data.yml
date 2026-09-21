@@ -3,15 +3,19 @@ name: 매크로 데이터 갱신
 on:
   schedule:
     # cron 은 UTC 기준입니다. KST = UTC+9.
-    # 미국 데이터: KST 06:00 + 07:00 (1시간 뒤 재시도 — FRED 가 그 순간 응답 없으면
+    # 정시(0분)는 GitHub 전체에서 스케줄이 몰려 지연되기 쉽다고 공식 문서에
+    # 명시돼 있어(https://docs.github.com/actions/using-workflows/events-that-trigger-workflows#schedule),
+    # 분 단위를 정시에서 벗어나게 잡는다. 시각은 근사치로만 이해하면 된다.
+    #
+    # 미국 데이터: KST 약 06:17 + 07:23 (1시간 뒤 재시도 — FRED 가 그 순간 응답 없으면
     # 다음 시각에 다시 시도), 화~토요일에만 (월요일은 건너뜀 — 전날이 일요일이라
-    # 새 데이터가 없음). UTC 로는 전날 21:00 / 22:00 이라, 트리거는 월~금
-    # 21:00 / 22:00 UTC → 화~토 06:00 / 07:00 KST 에 찍힌다.
-    - cron: "0 21 * * 1-5"
-    - cron: "0 22 * * 1-5"
-    # 국내 데이터: 평일 KST 16:00 + 17:00 (마찬가지로 1시간 뒤 재시도) = UTC 07:00 / 08:00
-    - cron: "0 7 * * 1-5"
-    - cron: "0 8 * * 1-5"
+    # 새 데이터가 없음). UTC 로는 전날 21:17 / 22:23 이라, 트리거는 월~금
+    # 21:17 / 22:23 UTC → 화~토 06:17 / 07:23 KST 에 찍힌다.
+    - cron: "17 21 * * 1-5"
+    - cron: "23 22 * * 1-5"
+    # 국내 데이터: 평일 KST 약 16:13 + 17:41 (마찬가지로 1시간 뒤 재시도) = UTC 07:13 / 08:41
+    - cron: "13 7 * * 1-5"
+    - cron: "41 8 * * 1-5"
   workflow_dispatch:           # Actions 탭에서 수동 실행
   push:
     paths:
@@ -48,9 +52,9 @@ jobs:
       - name: 데이터 수집
         run: |
           case "${{ github.event.schedule }}" in
-            "0 21 * * 1-5"|"0 22 * * 1-5") python scripts/fetch_data.py --group "미국 시장" ;;
-            "0 7 * * 1-5"|"0 8 * * 1-5")   python scripts/fetch_data.py --group "국내 시장" ;;
-            *)                             python scripts/fetch_data.py ;;
+            "17 21 * * 1-5"|"23 22 * * 1-5") python scripts/fetch_data.py --group "미국 시장" ;;
+            "13 7 * * 1-5"|"41 8 * * 1-5")   python scripts/fetch_data.py --group "국내 시장" ;;
+            *)                               python scripts/fetch_data.py ;;
           esac
         env:
           # VKOSPI 공식 오픈API 용. 없어도 돌아가며, 그때는 정보데이터시스템으로 떨어집니다.
