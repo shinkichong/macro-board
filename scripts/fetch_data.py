@@ -449,15 +449,19 @@ def fear_greed_osc_ndx() -> tuple[list[list], dict]:
 def rate_hy_combo(prev_rate: list[list] | None = None,
                    prev_spread: list[list] | None = None) -> tuple[list[list], dict]:
     """미국 10년물 국채금리와 하이일드 스프레드를 한 차트에 겹쳐 보기 위해
-    두 FRED 시리즈를 공통 날짜로 정렬한다.
+    두 시리즈를 공통 날짜로 정렬한다.
 
-    BAMLH0A0HYM2 는 ICE Data Indices 라이선스 계열이라 FRED 무료 CSV 는
-    cosd 를 아무리 과거로 줘도 최근 ~3년치만 돌려준다(승인 없이는 그 이상 불가).
-    그래서 새로 받은 값과 이전에 저장해둔 값을 합쳐서 쓴다 — 한 번 확보한
-    날짜는 FRED 창에서 밀려나도 우리 쪽 기록에 남아, 시간이 지날수록
-    보이는 구간이 넓어진다(다시 좁아지지는 않는다).
+    10년물은 단독 카드와 같은 Yahoo `^TNX` 를 쓴다(FRED DGS10 은 갱신 지연
+    이슈로 단독 카드도 이미 Yahoo 로 옮김 — 두 카드가 같은 소스를 쓰도록 통일).
+
+    하이일드 스프레드(BAMLH0A0HYM2)는 Yahoo 에 대응 티커가 없어 그대로 FRED 를
+    쓴다. 이건 ICE Data Indices 라이선스 계열이라 FRED 무료 CSV 는 cosd 를
+    아무리 과거로 줘도 최근 ~3년치만 돌려준다(승인 없이는 그 이상 불가). 그래서
+    새로 받은 값과 이전에 저장해둔 값을 합쳐서 쓴다 — 한 번 확보한 날짜는 FRED
+    창에서 밀려나도 우리 쪽 기록에 남아, 시간이 지날수록 보이는 구간이
+    넓어진다(다시 좁아지지는 않는다).
     """
-    ust10y = {d: v for d, v in fred(S.FRED["ust10y"]["id"], prev_data=prev_rate)}
+    ust10y = {d: v for d, v in index_series(S.FG_DGS10, prev_data=prev_rate)}
     hy = {d: v for d, v in fred(S.FRED["hy_yield"]["id"], prev_data=prev_spread)}
     dates = sorted(set(ust10y) & set(hy))
     if len(dates) < 30:
@@ -1035,8 +1039,8 @@ def build_jobs(prev: dict, series: dict) -> dict:
         fn=(lambda: rate_hy_combo(prev.get("rate_hy_combo", {}).get("data"),
                                    prev.get("rate_hy_combo", {}).get("price_data"))),
         name="미국 10년물 국채금리 · 하이일드 스프레드", unit="%", decimals=2,
-        threshold=None, below_is=None, freq="daily", source="FRED",
-        source_url=f"https://fred.stlouisfed.org/series/{S.FRED['ust10y']['id']}",
+        threshold=None, below_is=None, freq="daily", source="Yahoo Finance · FRED",
+        source_url="https://finance.yahoo.com/quote/%5ETNX/",
         kind="dual", price_label="하이일드 스프레드", price_unit="%p", price_decimals=2,
         osc_legend="미국 10년물 국채금리 (%)", price_legend="하이일드 스프레드 (%p)")
 
