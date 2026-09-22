@@ -714,23 +714,29 @@ def kospi200_option_volume(prev_data: list[list] | None, side: str) -> list[list
     return dedupe([[d, v] for d, v in have.items()])
 
 
-def kospi_fear_greed_osc(prev: dict) -> tuple[list[list], dict]:
+def kospi_fear_greed_osc(series: dict, prev: dict) -> tuple[list[list], dict]:
     """KOSPI Fear & Greed 오실레이터.
 
     VKOSPI·국채선물지수·옵션거래량은 하루치씩만 커버되는 공식 API 로 채워지므로,
-    매번 새로 전체 이력을 받아오는 대신 이미 data/macro.json 에 누적된 각
-    시리즈의 이력을 그대로 읽어와 계산한다 (KOSPI 자체는 Yahoo/Stooq 로 전체
-    이력이 항상 있지만, 나머지 4개가 짧으면 그만큼만 계산된다).
+    매번 새로 전체 이력을 받아오는 대신 이미 누적된 각 시리즈의 이력을 그대로
+    읽어와 계산한다 (KOSPI 자체는 Yahoo/Stooq 로 전체 이력이 항상 있지만,
+    나머지 4개가 짧으면 그만큼만 계산된다).
 
-    계산식은 D:\\06.DEV\\02.P_DEV\\06.매크로\\create_kospi_chart.py 의
-    calculate_fear_greed / calculate_macd 를 그대로 이식한 것이다.
+    `run()` 의 job 실행 순서상 이 job은 항상 그 5개 시리즈보다 나중에 도니,
+    이번 실행에서 막 갱신된 `series` 값을 우선 쓰고 없으면(= 이번 실행 대상이
+    아니었던 경우) `prev` 로 떨어진다. `series` 만 보면 이번 실행에서 막
+    갱신됐는데도 그 갱신분을 못 쓰고 항상 한 번 늦게(지난 실행 기준으로)
+    계산되는 문제가 있었다.
     """
-    kospi = dict(prev.get("kospi", {}).get("data", []))
-    vkospi = dict(prev.get("vkospi", {}).get("data", []))
-    b5 = dict(prev.get("bond5y_futures", {}).get("data", []))
-    b10 = dict(prev.get("bond10y_futures", {}).get("data", []))
-    call = dict(prev.get("kospi200_call_vol", {}).get("data", []))
-    put = dict(prev.get("kospi200_put_vol", {}).get("data", []))
+    def source(key: str) -> list[list]:
+        return series.get(key, prev.get(key, {})).get("data", [])
+
+    kospi = dict(source("kospi"))
+    vkospi = dict(source("vkospi"))
+    b5 = dict(source("bond5y_futures"))
+    b10 = dict(source("bond10y_futures"))
+    call = dict(source("kospi200_call_vol"))
+    put = dict(source("kospi200_put_vol"))
 
     dates = sorted(set(kospi) & set(vkospi) & set(b5) & set(b10) & set(call) & set(put))
     if len(dates) < 30:
@@ -857,7 +863,7 @@ def global_m2() -> tuple[list[list], dict]:
 # 오케스트레이션
 # ══════════════════════════════════════════════════════════════
 
-def build_jobs(prev: dict) -> dict:
+def build_jobs(prev: dict, series: dict) -> dict:
     jobs = {}
 
     for key, cfg in S.FRED.items():
@@ -985,7 +991,7 @@ def build_jobs(prev: dict) -> dict:
         threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
 
     jobs["kospi_fg_osc"] = dict(
-        fn=(lambda: kospi_fear_greed_osc(prev)),
+        fn=(lambda: kospi_fear_greed_osc(series, prev)),
         name="Fear & Greed 오실레이터 (KOSPI)", unit="", decimals=3,
         threshold=0, below_is="bad", freq="daily",
         source="KRX (커스텀 계산)", source_url="",
@@ -1001,8 +1007,9 @@ def run(only: set[str] | None, check_only: bool) -> int:
     if OUT.exists():
         prev = json.loads(OUT.read_text(encoding="utf-8")).get("series", {})
 
-    jobs = build_jobs(prev)
-    series, failures = {}, []
+    series: dict = {}
+    jobs = build_jobs(prev, series)
+    failures = []
 
     for key, job in jobs.items():
         if only and key not in only:
