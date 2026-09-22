@@ -162,17 +162,24 @@ def fred(series_id: str, start: str = START,
     return dedupe([[d, v] for d, v in have.items()])
 
 
-def yahoo(symbol: str) -> list[list]:
+def yahoo(symbol: str, prev_data: list[list] | None = None) -> list[list]:
+    """Yahoo v8 chart. prev_data 가 있으면 최근 3개월치만 받아 병합하는
+    증분 갱신으로 동작한다 — 매번 25년치를 다시 받지 않는다. 3개월을 쓰는
+    이유는 파이프라인이 몇 주 안 돌아도 공백 없이 이어붙일 여유를 두기 위함."""
+    have = {d: v for d, v in (prev_data or [])}
+    range_ = "3mo" if have else "25y"
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-           f"?range=25y&interval=1d")
+           f"?range={range_}&interval=1d")
     j = get(url).json()["chart"]["result"][0]
     ts = j["timestamp"]
     closes = j["indicators"]["quote"][0]["close"]
-    out = [[datetime.utcfromtimestamp(t).strftime("%Y-%m-%d"), round(c, 4)]
-           for t, c in zip(ts, closes) if c is not None]
-    if not out:
+    for t, c in zip(ts, closes):
+        if c is None:
+            continue
+        have[datetime.utcfromtimestamp(t).strftime("%Y-%m-%d")] = round(c, 4)
+    if not have:
         raise RuntimeError(f"Yahoo {symbol}: 값이 비어 있음")
-    return out
+    return dedupe([[d, v] for d, v in have.items()])
 
 
 def stooq(symbol: str) -> list[list]:
@@ -183,10 +190,10 @@ def stooq(symbol: str) -> list[list]:
     return [[r[0], float(r[4])] for r in rows[1:] if len(r) >= 5 and r[4]]
 
 
-def index_series(cfg: dict) -> list[list]:
+def index_series(cfg: dict, prev_data: list[list] | None = None) -> list[list]:
     """Yahoo 우선, 실패하면 Stooq."""
     try:
-        return yahoo(cfg["yahoo"])
+        return yahoo(cfg["yahoo"], prev_data=prev_data)
     except Exception as e:
         print(f"    Yahoo 실패({e}) → Stooq 로 재시도", flush=True)
         return stooq(cfg["stooq"])
@@ -688,7 +695,8 @@ def kospi_index_series(prev_data: list[list] | None) -> list[list]:
         print(f"    KRX 오픈API 로 {got}일치 추가", flush=True)
 
     try:
-        for d, v in index_series(S.INDICES["kospi"]):
+        yahoo_prev = [[d, v] for d, v in have.items()]
+        for d, v in index_series(S.INDICES["kospi"], prev_data=yahoo_prev):
             have.setdefault(d, v)  # KRX 값이 이미 있는 날짜는 덮어쓰지 않는다
     except Exception as e:
         if not have:
@@ -968,7 +976,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
         if key == "kospi":
             continue  # 아래에서 KRX 공식 API 우선 + Yahoo/Stooq 보완으로 따로 등록
         jobs[key] = dict(
-            fn=(lambda c=cfg: index_series(c)),
+            fn=(lambda c=cfg, k=key: index_series(c, prev_data=prev.get(k, {}).get("data"))),
             name=cfg["name"], unit=cfg["unit"], decimals=cfg["decimals"],
             threshold=None, below_is=None,
             freq="daily", source="Yahoo Finance / Stooq", source_url="",
