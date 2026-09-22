@@ -87,7 +87,13 @@ body{
   font-size:14px; font-weight:600; margin:0 0 12px; color:var(--ink-2);
   display:flex; align-items:center; gap:10px;
 }
-.group > h2::after{content:""; flex:1; height:1px; background:var(--rule)}
+.group > h2 .rule{flex:1; height:1px; background:var(--rule)}
+.update-btn{
+  font-size:11px; font-weight:500; padding:4px 10px; border-radius:6px;
+  border:1px solid var(--rule); background:var(--surface); color:var(--ink-2); cursor:pointer;
+}
+.update-btn:hover{border-color:var(--ink-3)}
+.update-btn:disabled{opacity:.55; cursor:default}
 .grid{display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
 
 .card{
@@ -548,6 +554,70 @@ function bindHover(box, pts, c, s){
   box.addEventListener("touchend", off);
 }
 
+/* ── 수동 갱신 버튼 ────────────────────────────────────────────────
+   GitHub Pages 는 서버가 없어 버튼이 GitHub Actions 를 직접 호출하려면
+   인증이 필요하다. Personal Access Token 을 이 브라우저의 localStorage 에만
+   저장해두고(서버로는 전송되지 않음) workflow_dispatch API 를 호출한다. */
+const GH_OWNER = "shinkichong";
+const GH_REPO = "macro-board";
+const GH_WORKFLOW = "update-data.yml";
+
+function ghToken(){
+  try{ return localStorage.getItem("gh_pat") || ""; }catch(_){ return ""; }
+}
+function setGhToken(t){
+  try{ localStorage.setItem("gh_pat", t); }catch(_){}
+}
+function clearGhToken(){
+  try{ localStorage.removeItem("gh_pat"); }catch(_){}
+}
+
+async function triggerUpdate(group, btn){
+  let token = ghToken();
+  if(!token){
+    token = (prompt(
+      "GitHub Personal Access Token을 입력하세요.\n" +
+      "이 저장소(macro-board)에 대한 'Actions: Read and write' 권한이 필요합니다.\n" +
+      "이 브라우저에만 저장되며 서버로 전송되지 않습니다."
+    ) || "").trim();
+    if(!token) return;
+    setGhToken(token);
+  }
+
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "요청 중…";
+  try{
+    const r = await fetch(
+      `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/actions/workflows/${GH_WORKFLOW}/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Accept": "application/vnd.github+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ref: "main", inputs: { group } }),
+      }
+    );
+    if(r.status === 204){
+      btn.textContent = "요청됨 ✓";
+    }else if(r.status === 401 || r.status === 403){
+      clearGhToken();
+      alert("토큰이 유효하지 않거나 권한이 없습니다. 버튼을 다시 눌러 새 토큰을 입력해주세요.");
+      btn.textContent = original;
+    }else{
+      const body = await r.text();
+      alert(`요청 실패 (HTTP ${r.status})\n${body.slice(0, 300)}`);
+      btn.textContent = original;
+    }
+  }catch(e){
+    alert("네트워크 오류로 요청하지 못했습니다: " + e.message);
+    btn.textContent = original;
+  }
+  setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4000);
+}
+
 /* ── 렌더 ─────────────────────────────────────────────────────── */
 function render(){
   const d = STATE.data;
@@ -558,7 +628,9 @@ function render(){
   for(const grp of groups){
     const sec = document.createElement("section");
     sec.className = "group";
-    sec.innerHTML = `<h2>${grp.group}</h2>`;
+    sec.innerHTML = `<h2><span>${grp.group}</span><span class="rule"></span>
+      <button type="button" class="update-btn" data-group="${grp.group}">↻ 업데이트</button></h2>`;
+    sec.querySelector(".update-btn").onclick = e => triggerUpdate(grp.group, e.currentTarget);
     const grid = document.createElement("div");
     grid.className = "grid";
 

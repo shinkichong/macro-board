@@ -16,7 +16,17 @@ on:
     # 국내 데이터: 평일 KST 약 16:13 + 17:41 (마찬가지로 1시간 뒤 재시도) = UTC 07:13 / 08:41
     - cron: "13 7 * * 1-5"
     - cron: "41 8 * * 1-5"
-  workflow_dispatch:           # Actions 탭에서 수동 실행
+  workflow_dispatch:           # Actions 탭 수동 실행, 또는 대시보드의 "업데이트" 버튼(API 호출)
+    inputs:
+      group:
+        description: "갱신할 그룹 (비워두면 전체)"
+        required: false
+        type: choice
+        default: "전체"
+        options:
+          - "전체"
+          - "미국 시장"
+          - "국내 시장"
   push:
     paths:
       - "scripts/**"
@@ -47,14 +57,22 @@ jobs:
       # 한 소스가 죽어도 나머지는 갱신된다. 실패분은 직전 값을 물려받고
       # 화면에 "갱신 실패" 배지가 붙으므로, 여기서 잡을 이유가 없다.
       #
-      # 스케줄 트리거일 때만 미국/국내를 분리해서 갱신한다 (--group).
-      # 수동 실행(workflow_dispatch)이나 push 트리거는 전체를 갱신한다.
+      # 스케줄 트리거는 미국/국내를 분리해서 갱신한다 (--group).
+      # 수동 실행(workflow_dispatch)은 group 입력값을 따른다 — 대시보드의
+      # "업데이트" 버튼이 이 입력값을 채워 API 로 호출한다. push 트리거는 전체.
       - name: 데이터 수집
         run: |
+          GROUP="${{ github.event.inputs.group }}"
           case "${{ github.event.schedule }}" in
             "17 21 * * 1-5"|"23 22 * * 1-5") python scripts/fetch_data.py --group "미국 시장" ;;
             "13 7 * * 1-5"|"41 8 * * 1-5")   python scripts/fetch_data.py --group "국내 시장" ;;
-            *)                               python scripts/fetch_data.py ;;
+            *)
+              if [ -n "$GROUP" ] && [ "$GROUP" != "전체" ]; then
+                python scripts/fetch_data.py --group "$GROUP"
+              else
+                python scripts/fetch_data.py
+              fi
+              ;;
           esac
         env:
           # VKOSPI 공식 오픈API 용. 없어도 돌아가며, 그때는 정보데이터시스템으로 떨어집니다.

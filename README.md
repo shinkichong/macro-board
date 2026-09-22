@@ -35,7 +35,24 @@ python -m http.server 8000             # http://localhost:8000
 3. (선택) **Settings ▸ Secrets and variables ▸ Actions** 에 `KRX_API_KEY` 추가 — VKOSPI 용
 4. **Actions** 탭에서 `매크로 데이터 갱신` 을 한 번 수동 실행
 
-이후 평일 07:10 / 16:20 (KST) 에 자동으로 돕니다.
+이후 미국 시장은 화~토 KST 약 06:17 + 07:23(재시도), 국내 시장은 월~금 KST 약 16:13 + 17:41(재시도)
+에 자동으로 돕니다 (분 단위를 정시에서 벗어나게 잡은 이유는 아래 "깨질 수 있는 곳" 참고).
+
+### 화면에서 바로 수동 갱신하기
+
+대시보드의 각 그룹 제목 옆 **"↻ 업데이트"** 버튼을 누르면 GitHub Actions 를 그 자리에서
+바로 실행시킬 수 있습니다. GitHub Pages 는 서버가 없는 정적 사이트라, 이 버튼은 브라우저에서
+GitHub REST API(`workflow_dispatch`)를 직접 호출합니다 — 그러려면 권한 있는 토큰이 필요합니다.
+
+1. [github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens/new) 에서
+   **Fine-grained personal access token** 발급
+   - Repository access: **Only select repositories** → 이 저장소만 선택
+   - Permissions: **Actions** → `Read and write`
+2. 버튼을 처음 누르면 토큰 입력창이 뜹니다. 붙여넣으면 이 브라우저의 `localStorage` 에만 저장되고
+   (서버로 전송되지 않음) 이후로는 클릭 한 번으로 바로 실행됩니다.
+3. 토큰이 만료되었거나 권한이 부족하면 자동으로 다시 물어봅니다.
+
+토큰은 Actions 실행 권한을 갖고 있으니, **본인 브라우저에만** 입력하고 공용 PC 에서는 쓰지 마세요.
 
 ## 파일 구조
 
@@ -126,6 +143,18 @@ ISM PMI 미러가 깨졌던 것과 같은 부류의 문제로 의심됩니다. �
 이 계열이 나중에 최근 구간만 주는 식으로 막혀도 그동안 확보한 과거치는 남습니다.
 지금 보이는 최근 구간 값 자체는 참고만 하시고, 관세청 수출입 통계나 한국은행 ECOS 로
 교차 확인하세요.
+
+**코스피/코스닥 최신 날짜가 하루씩 왔다갔다** — 버그가 아닙니다. Yahoo Finance 가 휴장일
+"당일" 봉을 잠깐 `close: null` 이 아닌 임시값으로 내려줬다가 몇 시간 뒤 `null` 로 정정하는
+경우가 있습니다. `yahoo()` 가 `close is not None` 인 값만 쓰므로, 정정되기 전에 수집하면
+최신 날짜가 하루 앞서 보였다가 다음 갱신에서 실제 마지막 거래일로 되돌아옵니다. 코드를
+고칠 필요는 없고, 그 사이 값을 본 거라면 참고만 하세요.
+
+**GitHub Actions 스케줄 자체가 통째로 스킵됨** — 위 지연과 별개로, 예정된 4번 중 일부가
+아예 실행되지 않고 넘어가는 경우를 실제로 확인했습니다(2026-09-21: 4번 중 2번만 실행).
+GitHub 공식 문서에 "부하가 심하면 예약 실행이 아예 건너뛰어질 수 있고 재실행되지 않는다"고
+명시돼 있어, 이건 무료 플랜의 구조적 한계로 보입니다. 화면 위 "↻ 업데이트" 버튼으로
+언제든 수동 보완할 수 있습니다.
 
 **OECD CLI** — SDMX 키 구조가 개편되면 후보 URL 이 전부 실패할 수 있습니다.
 [OECD Data Explorer](https://data-explorer.oecd.org/) 에서 원하는 계열을 고른 뒤
