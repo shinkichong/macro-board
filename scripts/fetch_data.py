@@ -133,10 +133,10 @@ def fred(series_id: str, start: str = START) -> list[list]:
 
     GitHub Actions 같은 클라우드 IP 대역에서는 FRED 가 응답 없이 45초씩
     물고 있다가 실패하는 경우를 봐서(연결 자체는 되니 재시도해도 잘 안 풀린다),
-    기본(45초)보다는 짧게 주되 재시도 성공률을 위해 30초 정도는 기다린다.
+    타임아웃과 재시도 횟수를 짧게 줘서 실패할 때 빨리 넘어가게 한다.
     """
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
-    rows = list(csv.reader(io.StringIO(get(url, timeout=30, retries=2).text)))
+    rows = list(csv.reader(io.StringIO(get(url, timeout=15, retries=2).text)))
     out = []
     for r in rows[1:]:
         if len(r) < 2 or r[1] in (".", "", "NA"):
