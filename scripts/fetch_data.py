@@ -390,9 +390,9 @@ def _compute_fear_greed_pair() -> dict:
     raw = {
         "spx": index_series(S.INDICES["spx"]),
         "ndx": index_series(S.INDICES["ndx"]),
-        "vix": fred("VIXCLS", S.FG_CALC_START),
-        "dgs10": fred("DGS10", S.FG_CALC_START),
-        "dgs5": fred("DGS5", S.FG_CALC_START),
+        "vix": index_series(S.FG_VIX),
+        "dgs10": index_series(S.FG_DGS10),
+        "dgs5": index_series(S.FG_DGS5),
         "hyg": index_series(S.FG_HYG),
         "ief": index_series(S.FG_IEF),
     }

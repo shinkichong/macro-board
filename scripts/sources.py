@@ -206,4 +206,14 @@ INTERNAL_GROUP_EXTRAS = {
 # ─────────────────────────────────────────────────────────────
 FG_HYG = dict(yahoo="HYG", stooq="hyg.us")
 FG_IEF = dict(yahoo="IEF", stooq="ief.us")
+# VIX·10년물·5년물은 원래 FRED(VIXCLS/DGS10/DGS5)에서 받았으나, GitHub Actions
+# 클라우드 IP 에서 FRED 가 며칠씩 응답을 안 주는 문제가 있어 Yahoo 로 옮겼다.
+# ^VIX 는 FRED VIXCLS 와 값이 사실상 동일(둘 다 CBOE 원천), ^TNX/^FVX 는
+# CBOE 지수라 FRED 의 재무부 공식치와 소수점 둘째자리 정도 차이가 날 수 있지만
+# 정규화해서 합성하는 이 계산 목적상 무시할 수준이다.
+# stooq 쪽 심볼(^vix/10usy.b/5usy.b)은 Stooq 가 현재 봇 차단(JS 챌린지)
+# 중이라 실제로 검증하지 못했다 — 나중에 Stooq 가 다시 열리면 확인할 것.
+FG_VIX = dict(yahoo="^VIX", stooq="^vix")
+FG_DGS10 = dict(yahoo="^TNX", stooq="10usy.b")
+FG_DGS5 = dict(yahoo="^FVX", stooq="5usy.b")
 FG_CALC_START = "2024-01-01"   # 원본 스크립트와 동일 — 정규화 기준 구간
