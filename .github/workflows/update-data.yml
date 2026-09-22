@@ -75,8 +75,10 @@ jobs:
               ;;
           esac
         env:
-          # VKOSPI 공식 오픈API 용. 없어도 돌아가며, 그때는 정보데이터시스템으로 떨어집니다.
+          # VKOSPI·코스피 공식 오픈API 용. 없어도 돌아가며, 그때는 정보데이터시스템/Yahoo로 떨어집니다.
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          # 한국 수출증가율(ECOS 수출금액지수) 용. 없어도 돌아가며, 그때는 FRED(OECD 미러)로 떨어집니다.
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         continue-on-error: true
 
       - name: 페이지 빌드

@@ -480,10 +480,48 @@ def real_policy_rate() -> list[list]:
     return out
 
 
+def _ecos_series(stat_code: str, item_code: str, start: str) -> list[list]:
+    """한국은행 ECOS StatisticSearch — 월별(M) 원계열/지수를 그대로 반환한다.
+    무료 인증키가 필요하다 (https://ecos.bok.or.kr, 즉시 자동 발급)."""
+    key = os.environ.get("ECOS_API_KEY")
+    if not key:
+        raise RuntimeError("ECOS_API_KEY 가 필요합니다.")
+    end = date.today().strftime("%Y%m")
+    start_ym = start.replace("-", "")[:6]
+    url = (f"https://ecos.bok.or.kr/api/StatisticSearch/{key}/json/kr/1/1000/"
+           f"{stat_code}/M/{start_ym}/{end}/{item_code}")
+    body = get(url).json()
+    if "RESULT" in body:
+        raise RuntimeError(f"ECOS {stat_code}: {body['RESULT'].get('MESSAGE')}")
+    rows = body.get("StatisticSearch", {}).get("row") or []
+    out = []
+    for row in rows:
+        t, v = row.get("TIME"), row.get("DATA_VALUE")
+        if not t or v in (None, ""):
+            continue
+        out.append([f"{t[:4]}-{t[4:6]}-01", float(v)])
+    if not out:
+        raise RuntimeError(f"ECOS {stat_code}: 값이 비어 있음")
+    return out
+
+
 def kr_exports_yoy(prev_data: list[list] | None = None) -> list[list]:
-    """한국 수출증가율(YoY). OECD MEI 를 FRED 가 미러링하는 계열이라 언젠가
-    하이일드 스프레드처럼 최근 구간만 내려주는 식으로 막힐 수 있다.
-    그런 경우에도 과거치가 사라지지 않도록 이전 값과 병합해둔다."""
+    """한국 수출증가율(YoY).
+
+    한국은행 ECOS 수출금액지수(403Y001, 총지수 *AA)로 직접 전년동월비를
+    계산한다 — 관세청 통관 실적 기반 원자료라 갱신이 빠르고, OECD MEI 를
+    FRED 가 미러링하던 이전 소스(XTEXVA01KRM659S)보다 최신이다.
+
+    ECOS_API_KEY 가 없거나 ECOS 호출이 실패하면 이전 FRED 방식으로 떨어진다.
+    다만 그 미러는 2026-06 이후로 원본 자체가 갱신을 멈춘 상태다(README 참고).
+    이전 값과 병합해 과거치가 사라지지 않게 한다.
+    """
+    try:
+        idx = _ecos_series("403Y001", "*AA", START_MONTHLY)
+        return yoy(idx)
+    except Exception as e:
+        print(f"    ECOS 실패({e}) → FRED(OECD 미러) 로 대체", flush=True)
+
     fresh = {d: v for d, v in fred("XTEXVA01KRM659S", START_MONTHLY)}
     for d, v in (prev_data or []):
         fresh.setdefault(d, v)
@@ -995,8 +1033,8 @@ def build_jobs(prev: dict, series: dict) -> dict:
         fn=(lambda: kr_exports_yoy(prev.get("kr_exports_yoy", {}).get("data"))),
         name="한국 수출증가율 (YoY)", unit="%", decimals=2,
         threshold=0, below_is="bad", freq="monthly",
-        source="FRED (OECD MEI 경유)",
-        source_url="https://fred.stlouisfed.org/series/XTEXVA01KRM659S")
+        source="한국은행 ECOS (수출금액지수 403Y001)",
+        source_url="https://ecos.bok.or.kr/#/SearchStat")
 
     jobs["vkospi"] = dict(
         fn=(lambda: vkospi(prev.get("vkospi", {}).get("data"))),
