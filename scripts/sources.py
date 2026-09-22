@@ -144,6 +144,13 @@ KRX_OPENAPI_BASE = "https://data-dbg.krx.co.kr/svc/apis"
 KRX_OPENAPI_PATH = "/idx/drvprod_dd_trd"      # 파생상품지수 일별시세
 VKOSPI_NAME_MATCH = ("변동성지수", "VKOSPI")   # 응답 행에서 VKOSPI 를 골라내는 이름 조각
 
+# 코스피 지수 자체(카드 + Fear&Greed 오실레이터의 재료)를 KRX 공식 데이터로 우선
+# 채우기 위한 엔드포인트. "유가증권지수 시세정보" — 위 파생상품지수와는 별도 상품이라
+# openapi.krx.co.kr 에서 별도로 신청·승인받아야 한다(승인 전에는 자동으로 Yahoo/Stooq
+# 로만 채워지니 카드가 멈추지는 않는다).
+KRX_OPENAPI_PATH_INDEX = "/idx/kospi_dd_trd"  # 유가증권지수 시세정보
+KOSPI_IDX_NAME = "코스피"                     # 응답 행에서 코스피 지수를 정확히 골라내는 이름
+
 # "옵션 일별매매정보 (주식옵션外)" — 종목(행사가·만기월)별 일별 거래량을 준다.
 # PROD_NM 이 "코스피200 옵션"인 것만 콜/풋으로 나눠 더하면 그날 콜·풋 총 거래량이 된다
 # (미니코스피200/위클리 옵션은 별도 상품이라 제외). KRX_API_KEY 승인 시 이 API도

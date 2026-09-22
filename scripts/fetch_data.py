@@ -564,11 +564,12 @@ def _vkospi_openapi(day: str, key: str) -> float | None:
     return None
 
 
-def _drvprod_idx_value(day: str, key: str, idx_name: str) -> float | None:
-    """KRX 파생상품지수 일별시세에서 IDX_NM 이 정확히 일치하는 행의 종가.
-    (VKOSPI 는 이름이 조금씩 바뀌어 부분일치를 쓰지만, 국채선물지수류는
+def _krx_idx_value(day: str, key: str, path: str, idx_name: str) -> float | None:
+    """KRX 공식 오픈API 지수 시세정보(파생상품지수/유가증권지수 공용)에서
+    IDX_NM 이 정확히 일치하는 행의 종가.
+    (VKOSPI 는 이름이 조금씩 바뀌어 부분일치를 쓰지만, 그 외 지수류는
     이름이 안정적이라 오탐 방지를 위해 정확히 일치하는 것만 고른다.)"""
-    url = S.KRX_OPENAPI_BASE + S.KRX_OPENAPI_PATH
+    url = S.KRX_OPENAPI_BASE + path
     try:
         r = session.get(url, params={"basDd": day.replace("-", "")},
                         headers={"AUTH_KEY": key}, timeout=TIMEOUT)
@@ -598,7 +599,7 @@ def drvprod_index_series(prev_data: list[list] | None, idx_name: str, label: str
     missing = _business_days_since(max(have) if have else None)
     got = 0
     for day in missing[-40:]:
-        v = _drvprod_idx_value(day, key, idx_name)
+        v = _krx_idx_value(day, key, S.KRX_OPENAPI_PATH, idx_name)
         if v is not None:
             have[day] = v
             got += 1
@@ -607,6 +608,40 @@ def drvprod_index_series(prev_data: list[list] | None, idx_name: str, label: str
 
     if not have:
         raise RuntimeError(f"{label} 수집 실패: 유효한 거래일 데이터가 없습니다.")
+    return dedupe([[d, v] for d, v in have.items()])
+
+
+def kospi_index_series(prev_data: list[list] | None) -> list[list]:
+    """코스피 지수 종가. KRX 공식 오픈API(유가증권지수 시세정보)를 우선 쓰고,
+    그 API 승인 전이거나 그날 값이 아직 없으면 Yahoo/Stooq 로 빈 날짜만 채운다.
+
+    Fear&Greed 오실레이터(KOSPI)의 다른 네 재료(VKOSPI·국채선물·옵션거래량)가
+    전부 KRX 데이터라, 코스피 값도 KRX 로 맞추면 Yahoo 쪽의 일시적 결측/오류
+    (README "깨질 수 있는 곳" 참고)가 오실레이터의 날짜 교집합을 막는 일이 줄어든다.
+    """
+    have = {d: v for d, v in (prev_data or [])}
+    key = os.environ.get("KRX_API_KEY")
+    if key:
+        missing = _business_days_since(max(have) if have else None)
+        got = 0
+        for day in missing[-40:]:
+            v = _krx_idx_value(day, key, S.KRX_OPENAPI_PATH_INDEX, S.KOSPI_IDX_NAME)
+            if v is not None:
+                have[day] = v
+                got += 1
+            time.sleep(0.25)
+        print(f"    KRX 오픈API 로 {got}일치 추가", flush=True)
+
+    try:
+        for d, v in index_series(S.INDICES["kospi"]):
+            have.setdefault(d, v)  # KRX 값이 이미 있는 날짜는 덮어쓰지 않는다
+    except Exception as e:
+        if not have:
+            raise
+        print(f"    Yahoo/Stooq 보완 실패({e}) — KRX 값만 사용", flush=True)
+
+    if not have:
+        raise RuntimeError("코스피: 수집된 값이 없습니다.")
     return dedupe([[d, v] for d, v in have.items()])
 
 
@@ -875,12 +910,22 @@ def build_jobs(prev: dict, series: dict) -> dict:
             source_url=f"https://fred.stlouisfed.org/series/{cfg['id']}")
 
     for key, cfg in S.INDICES.items():
+        if key == "kospi":
+            continue  # 아래에서 KRX 공식 API 우선 + Yahoo/Stooq 보완으로 따로 등록
         jobs[key] = dict(
             fn=(lambda c=cfg: index_series(c)),
             name=cfg["name"], unit=cfg["unit"], decimals=cfg["decimals"],
             threshold=None, below_is=None,
             freq="daily", source="Yahoo Finance / Stooq", source_url="",
             card_url=cfg.get("card_url", ""))
+
+    jobs["kospi"] = dict(
+        fn=(lambda: kospi_index_series(prev.get("kospi", {}).get("data"))),
+        name=S.INDICES["kospi"]["name"], unit=S.INDICES["kospi"]["unit"],
+        decimals=S.INDICES["kospi"]["decimals"],
+        threshold=None, below_is=None,
+        freq="daily", source="KRX 공식 오픈API + Yahoo Finance / Stooq 보완", source_url="",
+        card_url=S.INDICES["kospi"].get("card_url", ""))
 
     jobs["fear_greed"] = dict(
         fn=fear_greed, name="Fear & Greed", unit="", decimals=0,

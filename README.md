@@ -81,7 +81,8 @@ data/macro.json           수집된 시계열
 | 글로벌 M2 증감율 | FRED + ECB + PBOC + BOJ 합성 | 아래 설명 참고 |
 | OECD 경기선행지수 | OECD SDMX | FRED 미러는 갱신 중단됨 |
 | ISM 제조업지수 | DBnomics `ISM/pmi/pm` | 2016년 FRED 에서 삭제됨 |
-| 코스피 · 코스닥 | Yahoo Finance → Stooq | |
+| 코스피 | KRX 공식 오픈API + Yahoo Finance → Stooq 보완 | 인증키 선택. 아래 설명 참고 |
+| 코스닥 | Yahoo Finance → Stooq | |
 | VKOSPI | KRX 공식 오픈API + 정보데이터시스템 | 인증키 선택. 아래 설명 참고 |
 | 한국 수출증가율 (YoY) | FRED `XTEXVA01KRM659S` (OECD MEI 경유) | 아래 "깨질 수 있는 곳" 참고 — 최근 구간 값이 의심스러움 |
 
@@ -184,6 +185,15 @@ Download ▸ "Copy API link" 로 받은 URL 을 `OECD_CLI_CANDIDATES` 맨 앞에
 `bld` 값이 바뀌면 깨집니다. 그때는 data.krx.co.kr 에서 변동성지수 시세 화면을 연 뒤
 F12 ▸ Network 에서 `getJsonData.cmd` 요청의 payload 를 복사해
 `VKOSPI_PAYLOAD_CANDIDATES` 에 넣으세요.
+
+**코스피** — Fear&Greed 오실레이터(KOSPI)의 나머지 네 재료(VKOSPI·국채선물·옵션거래량)가
+전부 KRX 데이터라, 코스피 값도 Yahoo 대신 KRX 공식 오픈API를 우선 쓰도록 했습니다
+(Yahoo 는 가끔 최근 며칠 데이터가 비거나 늦게 정정되는 문제가 있어 — 위 항목 참고 —
+오실레이터의 날짜 교집합을 깨뜨리곤 했습니다). VKOSPI와는 **별도 상품**이라
+[openapi.krx.co.kr](https://openapi.krx.co.kr) "서비스 이용"에서
+**[유가증권지수 시세정보]** 를 따로 신청·승인받아야 하고, 같은 `KRX_API_KEY` 를 씁니다.
+승인 전이거나 그날 값이 아직 없으면 자동으로 Yahoo/Stooq 로 빈 날짜만 채우므로,
+신청 여부와 무관하게 코스피 카드는 계속 정상 갱신됩니다.
 
 GitHub Actions 러너는 해외 IP 라 정보데이터시스템 쪽이 느리거나 막힐 수 있습니다.
 공식 오픈API 를 붙여두면 이 문제에서 자유롭습니다.
