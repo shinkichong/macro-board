@@ -128,23 +128,38 @@ def yoy(pairs: list[list]) -> list[list]:
 # 소스별 fetcher
 # ══════════════════════════════════════════════════════════════
 
-def fred(series_id: str, start: str = START) -> list[list]:
+def fred(series_id: str, start: str = START,
+         prev_data: list[list] | None = None) -> list[list]:
     """FRED. API 키 없이 fredgraph.csv 로 받는다.
 
     GitHub Actions 같은 클라우드 IP 대역에서는 FRED 가 응답 없이 45초씩
     물고 있다가 실패하는 경우를 봐서(연결 자체는 되니 재시도해도 잘 안 풀린다),
-    타임아웃과 재시도 횟수를 짧게 줘서 실패할 때 빨리 넘어가게 한다.
+    기본(45초)보다는 짧게 주되 재시도 성공률을 위해 30초 정도는 기다린다.
+
+    prev_data 를 주면 마지막 저장일 근처부터만 요청하는 증분 갱신으로 동작한다 —
+    매번 전체 이력(수천 건)을 다시 받지 않아 요청이 가볍고 빠르다.
+
+    주의: cosd 를 그 계열의 실제 최신 관측치 시점 이후로 주면 FRED 는 cosd 를
+    통째로 무시하고 전체 이력(예: VIX 는 1990년부터)을 돌려준다 — 실측 확인함.
+    그래서 "마지막 저장일 + 1일" 이 아니라 "마지막 저장일 - 7일" 을 요청
+    시작점으로 써서, 이미 최신이라 해도 항상 cosd 가 실제 최신 관측치보다
+    확실히 과거이도록 여유를 둔다.
     """
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}"
-    rows = list(csv.reader(io.StringIO(get(url, timeout=15, retries=2).text)))
-    out = []
+    have = {d: v for d, v in (prev_data or [])}
+    fetch_start = start
+    if have:
+        anchor = (date.fromisoformat(max(have)) - timedelta(days=7)).isoformat()
+        fetch_start = max(start, anchor)
+
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={fetch_start}"
+    rows = list(csv.reader(io.StringIO(get(url, timeout=30, retries=2).text)))
     for r in rows[1:]:
         if len(r) < 2 or r[1] in (".", "", "NA"):
             continue          # FRED 는 휴일을 "." 로 표시한다
-        out.append([r[0], float(r[1])])
-    if not out:
+        have[r[0]] = float(r[1])
+    if not have:
         raise RuntimeError(f"FRED {series_id}: 값이 비어 있음")
-    return out
+    return dedupe([[d, v] for d, v in have.items()])
 
 
 def yahoo(symbol: str) -> list[list]:
@@ -435,12 +450,8 @@ def rate_hy_combo(prev_rate: list[list] | None = None,
     날짜는 FRED 창에서 밀려나도 우리 쪽 기록에 남아, 시간이 지날수록
     보이는 구간이 넓어진다(다시 좁아지지는 않는다).
     """
-    ust10y = {d: v for d, v in fred(S.FRED["ust10y"]["id"])}
-    hy = {d: v for d, v in fred(S.FRED["hy_yield"]["id"])}
-    for d, v in (prev_rate or []):
-        ust10y.setdefault(d, v)
-    for d, v in (prev_spread or []):
-        hy.setdefault(d, v)
+    ust10y = {d: v for d, v in fred(S.FRED["ust10y"]["id"], prev_data=prev_rate)}
+    hy = {d: v for d, v in fred(S.FRED["hy_yield"]["id"], prev_data=prev_spread)}
     dates = sorted(set(ust10y) & set(hy))
     if len(dates) < 30:
         raise RuntimeError(f"국채금리·하이일드 스프레드: 공통 거래일이 {len(dates)}개뿐 — 계산 불가")
@@ -947,7 +958,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
 
     for key, cfg in S.FRED.items():
         jobs[key] = dict(
-            fn=(lambda c=cfg: fred(c["id"])),
+            fn=(lambda c=cfg, k=key: fred(c["id"], prev_data=prev.get(k, {}).get("data"))),
             name=cfg["name"], unit=cfg["unit"], decimals=cfg["decimals"],
             threshold=cfg["threshold"], below_is=cfg["below_is"],
             freq="daily", source="FRED",
