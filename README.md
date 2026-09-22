@@ -197,6 +197,14 @@ FRED 는 `cosd` 를 통째로 무시하고 전체 이력을 돌려줍니다(예:
 요청 시작점으로 씁니다 — 항상 실제 최신 관측치보다 확실히 과거를 가리키도록 여유를
 둔 것입니다. FRED 관련 코드를 더 손볼 일이 있으면 이 함정을 꼭 기억하세요.
 
+**자동 커밋 재시도가 다른 코드 변경을 되돌릴 뻔함(수정됨)** — 워크플로의 push 실패
+재시도 로직이 `git reset --soft` 만 쓰다가, 그 실행이 시작될 때 체크아웃해둔(=이미
+낡은) `scripts/` 등 다른 파일이 인덱스에 그대로 남아 재커밋에 실려, 그 사이 다른
+커밋으로 들어온 코드 변경(FRED 타임아웃 수정)을 실제로 한 번 되돌린 적이 있습니다.
+`data/macro.json`·`index.html` 을 제외한 모든 파일을 최신 원격 상태로 명시적으로
+되돌린 뒤 커밋하도록 고쳤습니다 (`git checkout origin/main -- . ":(exclude)..."`).
+이 자동 커밋 스텝을 다시 손볼 일이 있으면 이 함정을 기억하세요.
+
 **OECD CLI** — SDMX 키 구조가 개편되면 후보 URL 이 전부 실패할 수 있습니다.
 [OECD Data Explorer](https://data-explorer.oecd.org/) 에서 원하는 계열을 고른 뒤
 Download ▸ "Copy API link" 로 받은 URL 을 `OECD_CLI_CANDIDATES` 맨 앞에 넣으세요.

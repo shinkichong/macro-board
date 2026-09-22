@@ -99,6 +99,12 @@ jobs:
           # 이번 실행 결과로 완전히 재생성된 산출물이라 병합할 필요가 없으므로,
           # 최신 커밋 위에 이번 결과를 그대로 다시 얹어 재시도한다(리베이스/머지
           # 충돌 자체가 나지 않는 방식).
+          #
+          # 주의: reset --soft 만 쓰면 이 실행이 시작될 때 체크아웃해뒀던(=이제는
+          # 낡은) scripts/ 등 다른 파일들이 인덱스에 그대로 남아, 그 사이 다른
+          # 커밋으로 들어온 코드 변경을 이 자동 커밋이 조용히 되돌려버리는
+          # 사고가 실제로 있었다. 그래서 data/macro.json·index.html 을 제외한
+          # 모든 파일은 최신 원격 상태로 명시적으로 되돌린 뒤 커밋한다.
           for i in 1 2 3 4 5; do
             if git push; then
               exit 0
@@ -106,6 +112,7 @@ jobs:
             echo "push 실패 — 최신 커밋 위에 이번 결과를 다시 얹어 재시도합니다 ($i/5)"
             git fetch origin "${GITHUB_REF_NAME}"
             git reset --soft "origin/${GITHUB_REF_NAME}"
+            git checkout "origin/${GITHUB_REF_NAME}" -- . ":(exclude)data/macro.json" ":(exclude)index.html"
             git add data/macro.json index.html
             git commit -m "데이터 갱신 $(date -u '+%Y-%m-%d %H:%M UTC')"
             sleep $((i * 3))
