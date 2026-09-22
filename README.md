@@ -73,8 +73,8 @@ data/macro.json           수집된 시계열
 |---|---|---|
 | S&P 500 · 나스닥 | Yahoo Finance → Stooq | Yahoo 실패 시 Stooq 로 자동 전환 |
 | Fear & Greed | CNN `production.dataviz.cnn.io` | 비공식. 2020-08 이후만 |
-| VIX | FRED `VIXCLS` | |
-| 미국 10년물 | FRED `DGS10` | |
+| VIX | Yahoo Finance `^VIX` | FRED `VIXCLS` 원본이 09-18 이후 갱신 지연돼 전환 |
+| 미국 10년물 | Yahoo Finance `^TNX` | FRED `DGS10` 원본이 09-18 이후 갱신 지연돼 전환. 통합 차트(`rate_hy_combo`)는 그대로 FRED |
 | 하이일드 스프레드 | FRED `BAMLH0A0HYM2` | 금리(Effective Yield)를 보려면 `BAMLH0A0HYM2EY` |
 | 장단기 금리차 | FRED `T10Y2Y` | 이미 계산된 계열 |
 | 미국 CPI (YoY) | FRED `CPIAUCNS` | 계절조정 전(NSA) 지수로 직접 전년동월비 계산 |
@@ -216,6 +216,19 @@ FRED 는 `cosd` 를 통째로 무시하고 전체 이력을 돌려줍니다(예:
 반면 같은 FRED 라도 `T10Y2Y` 는 09-21 까지 정상 갱신돼 있어, **FRED 전체가 아니라
 일부 계열만** 지연되고 있는 것으로 보입니다. Yahoo `^VIX`/`^TNX` 는 이미 09-21까지
 있어서, 이번 전환으로 오실레이터가 밀려있던 09-18 에서 바로 09-21로 따라잡혔습니다.
+
+**단독 "VIX 지수"·"미국 10년물 국채금리" 카드도 Yahoo 로 전환** — 위와 같은 이유로
+이 두 카드도 FRED `VIXCLS`/`DGS10` 대신 Yahoo `^VIX`/`^TNX`(`S.FG_VIX`/`S.FG_DGS10`
+재사용)를 씁니다. `build_jobs()` 의 일반 FRED 순회 루프에서 `vix`/`ust10y` 를
+건너뛰고 별도 등록합니다(코스피를 KRX 로 뺀 것과 같은 패턴). 전환 후 VIX 는
+09-22, 10년물은 09-21까지 바로 갱신됨을 확인했습니다.
+
+**주의**: `rate_hy_combo`(10년물·하이일드 스프레드 통합 차트)는 **의도적으로 그대로
+FRED `DGS10` 을 씁니다** — 하이일드 스프레드(`BAMLH0A0HYM2`)가 ICE 라이선스 계열이라
+Yahoo 에 대응 티커가 없어 두 시리즈를 하나로 맞추려면 FRED 로 통일하는 게 낫기
+때문입니다. 그래서 지금은 **단독 10년물 카드(Yahoo, 09-21까지)와 통합 차트의
+10년물 선(FRED, 09-18에 멈춤)이 서로 다른 소스라 값이 살짝 어긋나 보일 수
+있습니다** — 필요하면 통합 차트 쪽도 Yahoo 로 맞출 수 있습니다.
 
 **자동 커밋 재시도가 다른 코드 변경을 되돌릴 뻔함(수정됨)** — 워크플로의 push 실패
 재시도 로직이 `git reset --soft` 만 쓰다가, 그 실행이 시작될 때 체크아웃해둔(=이미

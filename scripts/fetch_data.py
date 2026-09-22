@@ -965,12 +965,31 @@ def build_jobs(prev: dict, series: dict) -> dict:
     jobs = {}
 
     for key, cfg in S.FRED.items():
+        if key in ("vix", "ust10y"):
+            continue  # 아래에서 Yahoo 로 별도 등록 — FRED VIXCLS/DGS10 원본이
+            # 2026-09-18 이후로 갱신이 지연되고 있는 게 확인됨 (README 참고)
         jobs[key] = dict(
             fn=(lambda c=cfg, k=key: fred(c["id"], prev_data=prev.get(k, {}).get("data"))),
             name=cfg["name"], unit=cfg["unit"], decimals=cfg["decimals"],
             threshold=cfg["threshold"], below_is=cfg["below_is"],
             freq="daily", source="FRED",
             source_url=f"https://fred.stlouisfed.org/series/{cfg['id']}")
+
+    jobs["vix"] = dict(
+        fn=(lambda: index_series(S.FG_VIX, prev_data=prev.get("vix", {}).get("data"))),
+        name=S.FRED["vix"]["name"], unit=S.FRED["vix"]["unit"],
+        decimals=S.FRED["vix"]["decimals"], threshold=S.FRED["vix"]["threshold"],
+        below_is=S.FRED["vix"]["below_is"], freq="daily",
+        source="Yahoo Finance (^VIX)",
+        source_url="https://finance.yahoo.com/quote/%5EVIX/")
+
+    jobs["ust10y"] = dict(
+        fn=(lambda: index_series(S.FG_DGS10, prev_data=prev.get("ust10y", {}).get("data"))),
+        name=S.FRED["ust10y"]["name"], unit=S.FRED["ust10y"]["unit"],
+        decimals=S.FRED["ust10y"]["decimals"], threshold=S.FRED["ust10y"]["threshold"],
+        below_is=S.FRED["ust10y"]["below_is"], freq="daily",
+        source="Yahoo Finance (^TNX)",
+        source_url="https://finance.yahoo.com/quote/%5ETNX/")
 
     for key, cfg in S.INDICES.items():
         if key == "kospi":
