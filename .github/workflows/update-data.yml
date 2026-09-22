@@ -89,10 +89,27 @@ jobs:
           git add data/macro.json index.html
           if git diff --staged --quiet; then
             echo "변경 없음 — 커밋 생략"
-          else
-            git commit -m "데이터 갱신 $(date -u '+%Y-%m-%d %H:%M UTC')"
-            git push
+            exit 0
           fi
+          git commit -m "데이터 갱신 $(date -u '+%Y-%m-%d %H:%M UTC')"
+          # "업데이트" 버튼(workflow_dispatch)이나 사람이 그 사이 직접 push 하면
+          # 여기서 non-fast-forward 로 거부된다. data/macro.json·index.html 은
+          # 이번 실행 결과로 완전히 재생성된 산출물이라 병합할 필요가 없으므로,
+          # 최신 커밋 위에 이번 결과를 그대로 다시 얹어 재시도한다(리베이스/머지
+          # 충돌 자체가 나지 않는 방식).
+          for i in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "push 실패 — 최신 커밋 위에 이번 결과를 다시 얹어 재시도합니다 ($i/5)"
+            git fetch origin "${GITHUB_REF_NAME}"
+            git reset --soft "origin/${GITHUB_REF_NAME}"
+            git add data/macro.json index.html
+            git commit -m "데이터 갱신 $(date -u '+%Y-%m-%d %H:%M UTC')"
+            sleep $((i * 3))
+          done
+          echo "여러 번 재시도했지만 push 에 실패했습니다."
+          exit 1
 
   publish:
     needs: collect
