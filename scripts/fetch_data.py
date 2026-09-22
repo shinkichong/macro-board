@@ -482,7 +482,13 @@ def real_policy_rate() -> list[list]:
 
 def _ecos_series(stat_code: str, item_code: str, start: str) -> list[list]:
     """한국은행 ECOS StatisticSearch — 월별(M) 원계열/지수를 그대로 반환한다.
-    무료 인증키가 필요하다 (https://ecos.bok.or.kr, 즉시 자동 발급)."""
+    무료 인증키가 필요하다 (https://ecos.bok.or.kr, 즉시 자동 발급).
+
+    GitHub Actions 같은 클라우드 IP 대역에서는 연결 자체가 45초씩 물고 있다가
+    실패하는 것이 관측돼(KRX 정보데이터시스템과 같은 부류의 문제로 보인다),
+    FRED 와 마찬가지로 타임아웃/재시도를 짧게 줘서 빨리 다음(FRED 폴백)으로
+    넘어가게 한다.
+    """
     key = os.environ.get("ECOS_API_KEY")
     if not key:
         raise RuntimeError("ECOS_API_KEY 가 필요합니다.")
@@ -490,7 +496,7 @@ def _ecos_series(stat_code: str, item_code: str, start: str) -> list[list]:
     start_ym = start.replace("-", "")[:6]
     url = (f"https://ecos.bok.or.kr/api/StatisticSearch/{key}/json/kr/1/1000/"
            f"{stat_code}/M/{start_ym}/{end}/{item_code}")
-    body = get(url).json()
+    body = get(url, timeout=10, retries=2).json()
     if "RESULT" in body:
         raise RuntimeError(f"ECOS {stat_code}: {body['RESULT'].get('MESSAGE')}")
     rows = body.get("StatisticSearch", {}).get("row") or []
