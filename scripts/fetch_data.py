@@ -449,7 +449,7 @@ def fear_greed_osc_ndx() -> tuple[list[list], dict]:
 def rate_hy_combo(prev_rate: list[list] | None = None,
                    prev_spread: list[list] | None = None) -> tuple[list[list], dict]:
     """미국 10년물 국채금리와 하이일드 스프레드를 한 차트에 겹쳐 보기 위해
-    두 시리즈를 공통 날짜로 정렬한다.
+    정렬한다.
 
     10년물은 단독 카드와 같은 Yahoo `^TNX` 를 쓴다(FRED DGS10 은 갱신 지연
     이슈로 단독 카드도 이미 Yahoo 로 옮김 — 두 카드가 같은 소스를 쓰도록 통일).
@@ -460,14 +460,34 @@ def rate_hy_combo(prev_rate: list[list] | None = None,
     새로 받은 값과 이전에 저장해둔 값을 합쳐서 쓴다 — 한 번 확보한 날짜는 FRED
     창에서 밀려나도 우리 쪽 기록에 남아, 시간이 지날수록 보이는 구간이
     넓어진다(다시 좁아지지는 않는다).
+
+    FRED 는 하이일드 스프레드를 10년물(Yahoo)보다 하루 이상 늦게 발표하는
+    경우가 흔하다. 예전에는 두 시리즈의 "공통 날짜"만 남겼는데, 그러면
+    단독 10년물 카드보다 이 콤보 카드가 하루 전 값을 보여주는 것처럼 보인다.
+    그래서 날짜 기준은 10년물(Yahoo) 쪽으로 두고, 스프레드는 그 날짜까지
+    나온 가장 최근 값을 그대로 이어 쓴다(forward-fill) — 10년물은 항상
+    최신치가 보이고, 스프레드만 며칠 늦게 갱신되는 걸 감수하는 방식.
     """
     ust10y = {d: v for d, v in index_series(S.FG_DGS10, prev_data=prev_rate)}
     hy = {d: v for d, v in fred(S.FRED["hy_yield"]["id"], prev_data=prev_spread)}
-    dates = sorted(set(ust10y) & set(hy))
-    if len(dates) < 30:
-        raise RuntimeError(f"국채금리·하이일드 스프레드: 공통 거래일이 {len(dates)}개뿐 — 계산 불가")
-    rate = [[d, ust10y[d]] for d in dates]
-    spread = [[d, hy[d]] for d in dates]
+    if len(ust10y) < 30 or not hy:
+        raise RuntimeError("국채금리·하이일드 스프레드: 데이터가 부족해 계산 불가")
+
+    dates = sorted(ust10y)
+    hy_dates = sorted(hy)
+    rate, spread = [], []
+    i, last_hy = 0, None
+    for d in dates:
+        while i < len(hy_dates) and hy_dates[i] <= d:
+            last_hy = hy[hy_dates[i]]
+            i += 1
+        if last_hy is None:
+            continue  # 하이일드 이력 시작 전 날짜는 건너뜀
+        rate.append([d, ust10y[d]])
+        spread.append([d, last_hy])
+
+    if len(rate) < 30:
+        raise RuntimeError(f"국채금리·하이일드 스프레드: 계산 가능한 날짜가 {len(rate)}개뿐 — 계산 불가")
     return rate, {"price_data": spread}
 
 
@@ -1042,7 +1062,8 @@ def build_jobs(prev: dict, series: dict) -> dict:
         threshold=None, below_is=None, freq="daily", source="Yahoo Finance · FRED",
         source_url="https://finance.yahoo.com/quote/%5ETNX/",
         kind="dual", price_label="하이일드 스프레드", price_unit="%p", price_decimals=2,
-        osc_legend="미국 10년물 국채금리 (%)", price_legend="하이일드 스프레드 (%p)")
+        osc_legend="미국 10년물 국채금리 (%)", price_legend="하이일드 스프레드 (%p)",
+        card_url="https://fred.stlouisfed.org/series/BAMLH0A0HYM2")
 
     jobs["oecd_cli"] = dict(
         fn=oecd_cli, name="OECD 경기선행지수 (미국)", unit="", decimals=2,
