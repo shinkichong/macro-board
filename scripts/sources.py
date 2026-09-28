@@ -16,7 +16,6 @@ decimals   : 표시 소수점 자리
 FRED = {
     "vix":        dict(id="VIXCLS",           name="VIX 지수",            unit="",   decimals=2, threshold=20,  below_is="good"),
     "ust10y":     dict(id="DGS10",            name="미국 10년물 국채금리", unit="%",  decimals=2, threshold=None, below_is=None),
-    "ust2y":      dict(id="DGS2",             name="미국 2년물 국채금리", unit="%",  decimals=2, threshold=None, below_is=None),
     "hy_yield":   dict(id="BAMLH0A0HYM2",     name="미국 하이일드 스프레드", unit="%p", decimals=2, threshold=None, below_is=None),
     "yc_10y2y":   dict(id="T10Y2Y",           name="장단기 금리차 (10Y-2Y)", unit="%p", decimals=2, threshold=0,  below_is="bad"),
 }
@@ -183,7 +182,7 @@ ISM_REF_URL = "https://kr.investing.com/economic-calendar/ism-manufacturing-pmi-
 LAYOUT = [
     dict(group="미국 시장", keys=[
         "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc", "vix",
-        "ust10y", "ust2y", "rate_hy_combo", "yc_10y2y",
+        "ust10y", "rate_hy_combo", "yc_10y2y",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr", "kr_exports_yoy"]),
