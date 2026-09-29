@@ -576,7 +576,7 @@ def kr_exports_yoy(prev_data: list[list] | None = None) -> list[list]:
     return [[d, fresh[d]] for d in sorted(fresh)]
 
 
-def vkospi(prev_data: list[list] | None = None) -> list[list]:
+def vkospi(prev_data: list[list] | None = None, trading_days: set[str] | None = None) -> list[list]:
     """
     과거치는 KRX 정보데이터시스템에서 기간 조회로 한 번에 적재하고,
     이후 갱신은 공식 오픈API 로 빠진 날짜만 하루씩 채웁니다.
@@ -594,17 +594,20 @@ def vkospi(prev_data: list[list] | None = None) -> list[list]:
             time.sleep(0.4)                             # KRX 에 부담 주지 않기
 
     key = os.environ.get("KRX_API_KEY")
-    missing = _business_days_since(max(have) if have else None)
+    missing = _business_days_since(max(have) if have else None, trading_days)
 
     if key and missing:
-        got = 0
+        got, errs = 0, []
         for day in missing[-40:]:                       # 한 번에 최대 40일치만
-            v = _vkospi_openapi(day, key)
+            v, err = _vkospi_openapi(day, key)
             if v is not None:
                 have[day] = v
                 got += 1
+            elif err:
+                errs.append((day, err))
             time.sleep(0.25)
         print(f"    오픈API 로 {got}일치 추가", flush=True)
+        _print_krx_failures(errs)
     elif missing and not key:
         # 인증키가 없으면 최근 구간만 정보데이터시스템으로 메운다.
         for d, v in _vkospi_mdc(missing[0].replace("-", ""),
@@ -616,63 +619,124 @@ def vkospi(prev_data: list[list] | None = None) -> list[list]:
             "VKOSPI 수집 실패. KRX_API_KEY 를 설정하거나, "
             "data.krx.co.kr 에서 getJsonData.cmd 의 bld 를 확인해 "
             "sources.VKOSPI_PAYLOAD_CANDIDATES 에 반영해주세요.")
+    _check_kr_staleness(have, trading_days, "VKOSPI")
     return dedupe([[d, v] for d, v in have.items()])
 
 
-def _business_days_since(last: str | None) -> list[str]:
-    """마지막 수집일 다음 영업일부터 오늘까지. (휴장일은 응답이 비어 자연히 걸러진다)"""
+def _business_days_since(last: str | None, trading_days: set[str] | None = None) -> list[str]:
+    """마지막 수집일 다음 영업일부터 오늘까지.
+
+    trading_days 를 주면(코스피 실제 거래일 목록) 주말뿐 아니라 추석·설 같은
+    공휴일도 걸러낸다 — 주지 않으면 주말만 거르는 예전 방식(월~금 전부
+    거래일로 가정)으로 동작한다.
+    """
     start = date.fromisoformat(last) + timedelta(days=1) if last else date.today() - timedelta(days=7)
     out, d = [], start
     while d <= date.today():
-        if d.weekday() < 5:
-            out.append(d.isoformat())
+        iso = d.isoformat()
+        if trading_days is not None:
+            if iso in trading_days:
+                out.append(iso)
+        elif d.weekday() < 5:
+            out.append(iso)
         d += timedelta(days=1)
     return out
 
 
-def _vkospi_openapi(day: str, key: str) -> float | None:
-    """KRX 공식 오픈API — 파생상품지수 일별시세에서 VKOSPI 행을 찾는다."""
-    url = S.KRX_OPENAPI_BASE + S.KRX_OPENAPI_PATH
+def _kr_trading_days(series: dict, prev: dict) -> set[str]:
+    """이번 실행에서 갱신된(실패했으면 직전) KOSPI 실제 거래일 목록.
+
+    KOSPI 는 Yahoo/Stooq 실거래 데이터라 주말은 물론 추석·설 같은 공휴일에도
+    캔들이 없다 — 이 날짜 목록을 VKOSPI/국채선물/옵션 등 KRX 전용 오픈API
+    수집의 "실제 개장일" 기준으로 재사용해서, 휴장일을 영업일로 착각해
+    '새 데이터 0건'을 오탐하지 않게 한다.
+    """
+    data = series.get("kospi", {}).get("data") or prev.get("kospi", {}).get("data") or []
+    return {d for d, _ in data}
+
+
+def _check_kr_staleness(have: dict, trading_days: set[str], label: str, buffer_days: int = 1) -> None:
+    """실제 개장일(trading_days)인데도 buffer_days 를 넘겨서까지 못 가져온
+    날짜가 여러 날 쌓이면 예외를 던진다.
+
+    KRX 오픈API 가 조용히 빈 값만 반환해도(키 만료, 승인 취소 등) 이전
+    함수들은 "이미 저장된 값이 있으니 성공"으로 넘어가 stale 배지 없이
+    며칠씩 멈춰 있는 문제가 있었다 — 실제 개장일 기준 공백이 하루를 넘게
+    쌓이면 여기서 걸러 stale 배지가 뜨게 한다.
+    """
+    if not trading_days:
+        return
+    cutoff = (date.today() - timedelta(days=buffer_days)).isoformat()
+    last = max(have) if have else ""
+    stuck = sorted(d for d in trading_days if last < d <= cutoff)
+    if len(stuck) > 1:
+        raise RuntimeError(f"{label}: 실제 개장일 {stuck[0]} 이후 {len(stuck)}일치를 "
+                           "KRX 오픈API에서 못 가져왔습니다 (KRX_API_KEY 만료/승인 문제 가능성)")
+
+
+def _print_krx_failures(errs: list[tuple[str, str]]) -> None:
+    """KRX 오픈API 호출 실패 사유를 CI 로그에 남긴다 (원인 불명 상태로 조용히
+    삼키지 않기 위함). 같은 사유가 여러 날 반복되면 한 줄로 묶는다."""
+    if not errs:
+        return
+    by_reason: dict[str, list[str]] = {}
+    for day, err in errs:
+        by_reason.setdefault(err, []).append(day)
+    for reason, days in by_reason.items():
+        print(f"    ✗ KRX 오픈API 실패({reason}): {days[0]}"
+              + (f" 외 {len(days) - 1}일" if len(days) > 1 else ""), flush=True)
+
+
+def _krx_openapi_get(url: str, day: str, key: str) -> tuple[list, str | None]:
+    """KRX 공식 오픈API 공통 호출. (행 목록, 실패 사유) 를 반환한다.
+
+    실패 사유를 상위(각 지표 수집 함수)로 올려보내, 실제 개장일인데도
+    계속 못 가져오는 경우 원인(HTTP 상태 코드/응답 파싱 실패 등)이 CI 로그에
+    남도록 한다 — 예전엔 여기서 그냥 None 을 반환해 삼켜버려서, 며칠씩
+    조용히 실패해도 원인을 알 방법이 없었다.
+    """
     try:
         r = session.get(url, params={"basDd": day.replace("-", "")},
                         headers={"AUTH_KEY": key}, timeout=TIMEOUT)
         if r.status_code != 200:
-            return None
-        rows = r.json().get("OutBlock_1") or []
-    except Exception:
-        return None
+            return [], f"HTTP {r.status_code}"
+        return r.json().get("OutBlock_1") or [], None
+    except Exception as e:
+        return [], str(e)
+
+
+def _vkospi_openapi(day: str, key: str) -> tuple[float | None, str | None]:
+    """KRX 공식 오픈API — 파생상품지수 일별시세에서 VKOSPI 행을 찾는다."""
+    rows, err = _krx_openapi_get(S.KRX_OPENAPI_BASE + S.KRX_OPENAPI_PATH, day, key)
+    if err:
+        return None, err
     for row in rows:
         name = row.get("IDX_NM") or row.get("IDX_NAME") or ""
         if any(frag in name for frag in S.VKOSPI_NAME_MATCH):
             raw = str(row.get("CLSPRC_IDX") or row.get("CLSPRC") or "").replace(",", "")
             if raw and raw not in ("-", ""):
-                return float(raw)
-    return None
+                return float(raw), None
+    return None, ("행은 왔지만 VKOSPI 이름 매칭 실패" if rows else "빈 응답(OutBlock_1 없음)")
 
 
-def _krx_idx_value(day: str, key: str, path: str, idx_name: str) -> float | None:
+def _krx_idx_value(day: str, key: str, path: str, idx_name: str) -> tuple[float | None, str | None]:
     """KRX 공식 오픈API 지수 시세정보(파생상품지수/유가증권지수 공용)에서
     IDX_NM 이 정확히 일치하는 행의 종가.
     (VKOSPI 는 이름이 조금씩 바뀌어 부분일치를 쓰지만, 그 외 지수류는
     이름이 안정적이라 오탐 방지를 위해 정확히 일치하는 것만 고른다.)"""
-    url = S.KRX_OPENAPI_BASE + path
-    try:
-        r = session.get(url, params={"basDd": day.replace("-", "")},
-                        headers={"AUTH_KEY": key}, timeout=TIMEOUT)
-        if r.status_code != 200:
-            return None
-        rows = r.json().get("OutBlock_1") or []
-    except Exception:
-        return None
+    rows, err = _krx_openapi_get(S.KRX_OPENAPI_BASE + path, day, key)
+    if err:
+        return None, err
     for row in rows:
         if row.get("IDX_NM") == idx_name:
             raw = str(row.get("CLSPRC_IDX") or "").replace(",", "")
             if raw and raw not in ("-", ""):
-                return float(raw)
-    return None
+                return float(raw), None
+    return None, (f"행은 왔지만 '{idx_name}' 이름 매칭 실패" if rows else "빈 응답(OutBlock_1 없음)")
 
 
-def drvprod_index_series(prev_data: list[list] | None, idx_name: str, label: str) -> list[list]:
+def drvprod_index_series(prev_data: list[list] | None, idx_name: str, label: str,
+                          trading_days: set[str] | None = None) -> list[list]:
     """파생상품지수 일별시세에서 임의의 지수를 하루씩 증분 수집한다 (VKOSPI 와 동일한 패턴).
     과거치를 한 번에 적재할 무료 경로가 없어 처음 수집한 날부터 하루씩 쌓인다."""
     have = {d: v for d, v in (prev_data or [])}
@@ -682,18 +746,22 @@ def drvprod_index_series(prev_data: list[list] | None, idx_name: str, label: str
             return dedupe([[d, v] for d, v in have.items()])
         raise RuntimeError(f"{label} 수집 실패: KRX_API_KEY 가 필요합니다.")
 
-    missing = _business_days_since(max(have) if have else None)
-    got = 0
+    missing = _business_days_since(max(have) if have else None, trading_days)
+    got, errs = 0, []
     for day in missing[-40:]:
-        v = _krx_idx_value(day, key, S.KRX_OPENAPI_PATH, idx_name)
+        v, err = _krx_idx_value(day, key, S.KRX_OPENAPI_PATH, idx_name)
         if v is not None:
             have[day] = v
             got += 1
+        elif err:
+            errs.append((day, err))
         time.sleep(0.25)
     print(f"    오픈API 로 {got}일치 추가", flush=True)
+    _print_krx_failures(errs)
 
     if not have:
         raise RuntimeError(f"{label} 수집 실패: 유효한 거래일 데이터가 없습니다.")
+    _check_kr_staleness(have, trading_days, label)
     return dedupe([[d, v] for d, v in have.items()])
 
 
@@ -711,7 +779,7 @@ def kospi_index_series(prev_data: list[list] | None) -> list[list]:
         missing = _business_days_since(max(have) if have else None)
         got = 0
         for day in missing[-40:]:
-            v = _krx_idx_value(day, key, S.KRX_OPENAPI_PATH_INDEX, S.KOSPI_IDX_NAME)
+            v, _err = _krx_idx_value(day, key, S.KRX_OPENAPI_PATH_INDEX, S.KOSPI_IDX_NAME)
             if v is not None:
                 have[day] = v
                 got += 1
@@ -758,28 +826,24 @@ def _vkospi_mdc(start: str, end: str) -> list[list]:
     return []
 
 
-def _kospi200_opt_volumes(day: str, key: str) -> tuple[int, int] | None:
+def _kospi200_opt_volumes(day: str, key: str) -> tuple[tuple[int, int] | None, str | None]:
     """코스피200 옵션(미니/위클리 제외) 콜·풋 당일 총 거래량 합계.
     KRX 오픈API '옵션 일별매매정보 (주식옵션外)' — 종목별로 나오는 걸 PROD_NM 으로 필터해 더한다."""
-    url = S.KRX_OPENAPI_BASE + S.KRX_OPT_PATH
-    try:
-        r = session.get(url, params={"basDd": day.replace("-", "")},
-                        headers={"AUTH_KEY": key}, timeout=TIMEOUT)
-        if r.status_code != 200:
-            return None
-        rows = r.json().get("OutBlock_1") or []
-    except Exception:
-        return None
+    rows, err = _krx_openapi_get(S.KRX_OPENAPI_BASE + S.KRX_OPT_PATH, day, key)
+    if err:
+        return None, err
     call_vol = sum(int(row.get("ACC_TRDVOL") or 0) for row in rows
                    if row.get("PROD_NM") == S.KRX_OPT_PROD_NAME and row.get("RGHT_TP_NM") == "CALL")
     put_vol = sum(int(row.get("ACC_TRDVOL") or 0) for row in rows
                   if row.get("PROD_NM") == S.KRX_OPT_PROD_NAME and row.get("RGHT_TP_NM") == "PUT")
     if call_vol == 0 and put_vol == 0:
-        return None      # 휴장일 등 — 거래된 게 없으면 그 날은 건너뛴다
-    return call_vol, put_vol
+        # 휴장일 등 — 거래된 게 없으면 그 날은 건너뛴다 (에러는 아님)
+        return None, None
+    return (call_vol, put_vol), None
 
 
-def kospi200_option_pcr(prev_data: list[list] | None = None) -> list[list]:
+def kospi200_option_pcr(prev_data: list[list] | None = None,
+                        trading_days: set[str] | None = None) -> list[list]:
     """코스피200 옵션 풋/콜 거래량 비율(PUT/CALL 총거래량).
 
     오픈API 가 하루치씩만 주기 때문에 VKOSPI 와 같은 방식으로, 이미 쌓인
@@ -794,22 +858,27 @@ def kospi200_option_pcr(prev_data: list[list] | None = None) -> list[list]:
         raise RuntimeError("코스피200 옵션 풋/콜 비율 수집 실패: KRX_API_KEY 가 필요합니다 "
                            "('옵션 일별매매정보 (주식옵션外)' API 승인 필요).")
 
-    missing = _business_days_since(max(have) if have else None)
-    got = 0
+    missing = _business_days_since(max(have) if have else None, trading_days)
+    got, errs = 0, []
     for day in missing[-40:]:
-        vols = _kospi200_opt_volumes(day, key)
+        vols, err = _kospi200_opt_volumes(day, key)
         if vols and vols[0] > 0:
             have[day] = round(vols[1] / vols[0], 4)
             got += 1
+        elif err:
+            errs.append((day, err))
         time.sleep(0.25)
     print(f"    오픈API 로 {got}일치 추가", flush=True)
+    _print_krx_failures(errs)
 
     if not have:
         raise RuntimeError("코스피200 옵션 풋/콜 비율 수집 실패: 유효한 거래일 데이터가 없습니다.")
+    _check_kr_staleness(have, trading_days, "코스피200 옵션 풋/콜 비율")
     return dedupe([[d, v] for d, v in have.items()])
 
 
-def kospi200_option_volume(prev_data: list[list] | None, side: str) -> list[list]:
+def kospi200_option_volume(prev_data: list[list] | None, side: str,
+                          trading_days: set[str] | None = None) -> list[list]:
     """코스피200 옵션 콜 또는 풋의 당일 총 거래량을 하루씩 증분 수집한다.
     kospi200_pcr 과 같은 API 를 쓰지만 원거래량 자체를 저장해둬야
     KOSPI Fear&Greed 오실레이터의 5일 이동평균 계산에 쓸 수 있다."""
@@ -821,18 +890,22 @@ def kospi200_option_volume(prev_data: list[list] | None, side: str) -> list[list
         raise RuntimeError(f"코스피200 옵션 {side} 거래량 수집 실패: KRX_API_KEY 가 필요합니다.")
 
     idx = 0 if side == "call" else 1
-    missing = _business_days_since(max(have) if have else None)
-    got = 0
+    missing = _business_days_since(max(have) if have else None, trading_days)
+    got, errs = 0, []
     for day in missing[-40:]:
-        vols = _kospi200_opt_volumes(day, key)
+        vols, err = _kospi200_opt_volumes(day, key)
         if vols is not None:
             have[day] = vols[idx]
             got += 1
+        elif err:
+            errs.append((day, err))
         time.sleep(0.25)
     print(f"    오픈API 로 {got}일치 추가", flush=True)
+    _print_krx_failures(errs)
 
     if not have:
         raise RuntimeError(f"코스피200 옵션 {side} 거래량 수집 실패: 유효한 거래일 데이터가 없습니다.")
+    _check_kr_staleness(have, trading_days, f"코스피200 옵션 {side} 거래량")
     return dedupe([[d, v] for d, v in have.items()])
 
 
@@ -1106,14 +1179,16 @@ def build_jobs(prev: dict, series: dict) -> dict:
         source_url="https://ecos.bok.or.kr/#/SearchStat")
 
     jobs["vkospi"] = dict(
-        fn=(lambda: vkospi(prev.get("vkospi", {}).get("data"))),
+        fn=(lambda: vkospi(prev.get("vkospi", {}).get("data"),
+                           trading_days=_kr_trading_days(series, prev))),
         name="VKOSPI", unit="", decimals=2,
         threshold=20, below_is="good", freq="daily", source="KRX",
         source_url="http://data.krx.co.kr/",
         ref_url=S.VKOSPI_REF_URL, ref_label="값 대조")
 
     jobs["kospi200_pcr"] = dict(
-        fn=(lambda: kospi200_option_pcr(prev.get("kospi200_pcr", {}).get("data"))),
+        fn=(lambda: kospi200_option_pcr(prev.get("kospi200_pcr", {}).get("data"),
+                                        trading_days=_kr_trading_days(series, prev))),
         name="코스피200 옵션 풋/콜 비율", unit="", decimals=3,
         threshold=1, below_is="good", freq="daily", source="KRX",
         source_url="", fixed_period_months=6,
@@ -1122,23 +1197,27 @@ def build_jobs(prev: dict, series: dict) -> dict:
 
     jobs["bond5y_futures"] = dict(
         fn=(lambda: drvprod_index_series(prev.get("bond5y_futures", {}).get("data"),
-                                         "5년 국채선물 추종 지수", "5년 국채선물 추종 지수")),
+                                         "5년 국채선물 추종 지수", "5년 국채선물 추종 지수",
+                                         trading_days=_kr_trading_days(series, prev))),
         name="5년 국채선물 추종 지수", unit="", decimals=2,
         threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
 
     jobs["bond10y_futures"] = dict(
         fn=(lambda: drvprod_index_series(prev.get("bond10y_futures", {}).get("data"),
-                                         "10년국채선물지수", "10년국채선물지수")),
+                                         "10년국채선물지수", "10년국채선물지수",
+                                         trading_days=_kr_trading_days(series, prev))),
         name="10년 국채선물지수", unit="", decimals=2,
         threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
     jobs["kospi200_call_vol"] = dict(
-        fn=(lambda: kospi200_option_volume(prev.get("kospi200_call_vol", {}).get("data"), "call")),
+        fn=(lambda: kospi200_option_volume(prev.get("kospi200_call_vol", {}).get("data"), "call",
+                                           trading_days=_kr_trading_days(series, prev))),
         name="코스피200 옵션 콜 거래량 (내부용)", unit="", decimals=0,
         threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
     jobs["kospi200_put_vol"] = dict(
-        fn=(lambda: kospi200_option_volume(prev.get("kospi200_put_vol", {}).get("data"), "put")),
+        fn=(lambda: kospi200_option_volume(prev.get("kospi200_put_vol", {}).get("data"), "put",
+                                           trading_days=_kr_trading_days(series, prev))),
         name="코스피200 옵션 풋 거래량 (내부용)", unit="", decimals=0,
         threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
 
