@@ -173,8 +173,17 @@ def yahoo(symbol: str, prev_data: list[list] | None = None) -> list[list]:
     j = get(url).json()["chart"]["result"][0]
     ts = j["timestamp"]
     closes = j["indicators"]["quote"][0]["close"]
+    # 장중에 돌면 오늘 캔들의 close 는 종가가 아니라 현재가다. 이걸 저장하면
+    # 병합 방식에 따라(예: 코스피의 setdefault) 장중 값이 종가처럼 굳어버리므로,
+    # 정규장 종료 + 30분 전에는 오늘 캔들을 버린다.
+    regular = (j.get("meta", {}).get("currentTradingPeriod") or {}).get("regular") or {}
+    intraday_from = None
+    if regular.get("start") and regular.get("end") and time.time() < regular["end"] + 1800:
+        intraday_from = regular["start"]
     for t, c in zip(ts, closes):
         if c is None:
+            continue
+        if intraday_from is not None and t >= intraday_from:
             continue
         have[datetime.utcfromtimestamp(t).strftime("%Y-%m-%d")] = round(c, 4)
     if not have:
@@ -775,13 +784,20 @@ def kospi_index_series(prev_data: list[list] | None) -> list[list]:
     """
     have = {d: v for d, v in (prev_data or [])}
     key = os.environ.get("KRX_API_KEY")
+    recent: list[str] = []
+    krx_days: set[str] = set()
     if key:
+        # KRX 는 당일 값을 다음 날 아침에야 주므로, 그 사이 Yahoo 값이 먼저
+        # 들어와 있다. 최근 10일은 KRX 에 매번 다시 물어 KRX 값으로 덮어쓴다
+        # (Yahoo 코스피는 KRX 종가와 어긋나는 일이 잦다).
+        recent = _business_days_since((date.today() - timedelta(days=10)).isoformat())
         missing = _business_days_since(max(have) if have else None)
         got = 0
-        for day in missing[-40:]:
+        for day in sorted(set(missing[-40:]) | set(recent)):
             v, _err = _krx_idx_value(day, key, S.KRX_OPENAPI_PATH_INDEX, S.KOSPI_IDX_NAME)
             if v is not None:
                 have[day] = v
+                krx_days.add(day)
                 got += 1
             time.sleep(0.25)
         print(f"    KRX 오픈API 로 {got}일치 추가", flush=True)
@@ -789,7 +805,10 @@ def kospi_index_series(prev_data: list[list] | None) -> list[list]:
     try:
         yahoo_prev = [[d, v] for d, v in have.items()]
         for d, v in index_series(S.INDICES["kospi"], prev_data=yahoo_prev):
-            have.setdefault(d, v)  # KRX 값이 이미 있는 날짜는 덮어쓰지 않는다
+            if d in recent and d not in krx_days:
+                have[d] = v        # KRX 가 아직 안 준 최근 날짜는 Yahoo 최신값으로 갱신
+            else:
+                have.setdefault(d, v)  # KRX 값이 이미 있는 날짜는 덮어쓰지 않는다
     except Exception as e:
         if not have:
             raise
