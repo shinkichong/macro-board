@@ -13,10 +13,6 @@ on:
     # 21:17 / 22:23 UTC → 화~토 06:17 / 07:23 KST 에 찍힌다.
     - cron: "17 21 * * 1-5"
     - cron: "23 22 * * 1-5"
-    # 미국 추가 재시도: 화~토 KST 약 12:37 = UTC 03:37 (같은 날짜).
-    # Yahoo 가 HYG·IEF 일봉 종가를 몇 시간 늦게 채워(새벽엔 close=None),
-    # 새벽 실행에서는 Fear&Greed 오실레이터(S&P500/NASDAQ)가 하루 늦게 남는다.
-    - cron: "37 3 * * 2-6"
     # 국내 데이터: 평일 KST 약 21:14 + 22:43 (마찬가지로 1시간 뒤 재시도) = UTC 12:14 / 13:43
     - cron: "14 12 * * 1-5"
     - cron: "43 13 * * 1-5"
@@ -68,7 +64,7 @@ jobs:
         run: |
           GROUP="${{ github.event.inputs.group }}"
           case "${{ github.event.schedule }}" in
-            "17 21 * * 1-5"|"23 22 * * 1-5"|"37 3 * * 2-6") python scripts/fetch_data.py --group "미국 시장" ;;
+            "17 21 * * 1-5"|"23 22 * * 1-5") python scripts/fetch_data.py --group "미국 시장" ;;
             "14 12 * * 1-5"|"43 13 * * 1-5") python scripts/fetch_data.py --group "국내 시장" ;;
             *)
               if [ -n "$GROUP" ] && [ "$GROUP" != "전체" ]; then
