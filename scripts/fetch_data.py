@@ -153,15 +153,121 @@ def fred(series_id: str, start: str = START,
         anchor = (date.fromisoformat(max(have)) - timedelta(days=7)).isoformat()
         fetch_start = max(start, anchor)
 
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={fetch_start}"
-    rows = list(csv.reader(io.StringIO(get(url, timeout=30, retries=2).text)))
-    for r in rows[1:]:
-        if len(r) < 2 or r[1] in (".", "", "NA"):
-            continue          # FRED 는 휴일을 "." 로 표시한다
-        have[r[0]] = float(r[1])
+    global _FRED_DOWN
+    if not _FRED_DOWN:
+        try:
+            url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={fetch_start}"
+            rows = list(csv.reader(io.StringIO(get(url, timeout=30, retries=2).text)))
+            for r in rows[1:]:
+                if len(r) < 2 or r[1] in (".", "", "NA"):
+                    continue          # FRED 는 휴일을 "." 로 표시한다
+                have[r[0]] = float(r[1])
+            if not have:
+                raise RuntimeError(f"FRED {series_id}: 값이 비어 있음")
+            return dedupe([[d, v] for d, v in have.items()])
+        except requests.RequestException as e:
+            # 타임아웃·연결 실패면 이번 실행의 나머지 FRED 호출도 같은 식으로 1분씩
+            # 물고 있다가 실패하므로, 이후로는 FRED 를 건너뛰고 곧장 대체 소스로 간다.
+            _FRED_DOWN = True
+            print(f"    FRED 응답 없음({type(e).__name__}) → 이번 실행은 대체 소스 사용", flush=True)
+
+    rows = _fred_fallback(series_id, fetch_start)
+    have.update({d: v for d, v in rows})
     if not have:
-        raise RuntimeError(f"FRED {series_id}: 값이 비어 있음")
+        raise RuntimeError(f"FRED {series_id}: 대체 소스에도 값이 없음")
     return dedupe([[d, v] for d, v in have.items()])
+
+
+_FRED_DOWN = False
+
+
+def _fred_fallback(series_id: str, start: str) -> list[list]:
+    """FRED 대체 소스 (sources.FRED_FALLBACKS). 없으면 FRED 공식 API(키 필요)."""
+    cfg = S.FRED_FALLBACKS.get(series_id)
+    if cfg:
+        print(f"    {series_id} → {cfg['kind']} 대체 소스", flush=True)
+        kind = cfg["kind"]
+        if kind == "bls":
+            return _bls_series(cfg["series"], start)
+        if kind == "dbnomics":
+            return [[d, v] for d, v in dbnomics(cfg["series"]) if d >= start]
+        if kind == "fed_ddp":
+            return _fed_ddp(cfg["rel"], cfg["package"], cfg["column"], start)
+        if kind == "nyfed":
+            return _nyfed_target(cfg["side"], start)
+        if kind == "treasury":
+            return _treasury_spread(cfg["long"], cfg["short"], start)
+        raise RuntimeError(f"알 수 없는 FRED 대체 소스 종류: {kind}")
+
+    key = os.environ.get("FRED_API_KEY")
+    if not key:
+        raise RuntimeError(f"FRED {series_id}: 응답 없음, 무료 대체 소스 없음 "
+                           "(FRED_API_KEY 를 설정하면 FRED 공식 API 로 재시도합니다)")
+    print(f"    {series_id} → FRED 공식 API", flush=True)
+    j = get("https://api.stlouisfed.org/fred/series/observations",
+            params={"series_id": series_id, "api_key": key, "file_type": "json",
+                    "observation_start": start}).json()
+    return [[o["date"], float(o["value"])] for o in j.get("observations", [])
+            if o.get("value") not in (".", "", None)]
+
+
+def _bls_series(series_id: str, start: str) -> list[list]:
+    """BLS 공개 API v1 (키 없이 요청당 최대 10년)."""
+    out = []
+    y0, y1 = int(start[:4]), date.today().year
+    for a in range(y0, y1 + 1, 10):
+        j = session.post("https://api.bls.gov/publicAPI/v1/timeseries/data/",
+                         json={"seriesid": [series_id], "startyear": str(a),
+                               "endyear": str(min(a + 9, y1))}, timeout=TIMEOUT).json()
+        if j.get("status") != "REQUEST_SUCCEEDED":
+            raise RuntimeError(f"BLS {series_id}: {j.get('message')}")
+        for x in j["Results"]["series"][0]["data"]:
+            if x["period"].startswith("M") and x["period"] != "M13" and x["value"] not in ("-", ""):
+                out.append([f"{x['year']}-{x['period'][1:]}-01", float(x["value"])])
+    return [[d, v] for d, v in sorted(out) if d >= start]
+
+
+def _fed_ddp(rel: str, package: str, column: str, start: str) -> list[list]:
+    """연준 Data Download Program CSV. 6번째 줄이 열 ID("M2.M" 등), 그 뒤가 관측치."""
+    url = (f"https://www.federalreserve.gov/datadownload/Output.aspx?rel={rel}&series={package}"
+           "&lastobs=&from=&to=&filetype=csv&label=include&layout=seriescolumn")
+    rows = list(csv.reader(io.StringIO(get(url, timeout=60).text)))
+    ids = rows[5] if len(rows) > 5 else []
+    if column not in ids:
+        raise RuntimeError(f"연준 DDP {rel}: 열 {column} 이 없음 (패키지 구성 변경 가능성)")
+    i = ids.index(column)
+    out = []
+    for r in rows[6:]:
+        try:
+            out.append([normalize_period(r[0]), float(r[i])])
+        except (ValueError, IndexError):
+            continue          # "ND"(자료 없음) 등
+    return [[d, v] for d, v in out if d >= start]
+
+
+def _nyfed_target(side: str, start: str) -> list[list]:
+    """뉴욕연준 EFFR API — 영업일마다 FOMC 목표범위 하단/상단이 함께 온다.
+    범위 목표제는 2008-12-16 부터라 그 전 날짜는 값이 없다(FRED DFEDTARU/L 과 같음)."""
+    url = ("https://markets.newyorkfed.org/api/rates/unsecured/effr/search.json"
+           f"?startDate={max(start, '2008-12-16')}&endDate={date.today().isoformat()}")
+    rows = get(url, timeout=60).json()["refRates"]
+    return sorted([x["effectiveDate"], float(x[side])] for x in rows if x.get(side) is not None)
+
+
+def _treasury_spread(long: str, short: str, start: str) -> list[list]:
+    """미 재무부 일별 명목 수익률곡선 CSV(연도별)에서 long - short 를 계산한다."""
+    out = []
+    for y in range(int(start[:4]), date.today().year + 1):
+        url = ("https://home.treasury.gov/resource-center/data-chart-center/interest-rates/"
+               f"daily-treasury-rates.csv/{y}/all?type=daily_treasury_yield_curve"
+               f"&field_tdr_date_value={y}&page&_format=csv")
+        for r in csv.DictReader(io.StringIO(get(url).text)):
+            try:
+                m, d, yy = r["Date"].split("/")
+                out.append([f"{yy}-{m}-{d}", round(float(r[long]) - float(r[short]), 2)])
+            except (KeyError, ValueError):
+                continue
+    return [[d, v] for d, v in sorted(out) if d >= start]
 
 
 def yahoo(symbol: str, prev_data: list[list] | None = None) -> list[list]:

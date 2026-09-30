@@ -13,6 +13,27 @@ decimals   : 표시 소수점 자리
 # ─────────────────────────────────────────────────────────────
 # FRED: API 키 없이 fredgraph.csv 로 받습니다.
 # ─────────────────────────────────────────────────────────────
+# FRED 가 응답하지 않을 때(GitHub Actions IP 에서 타임아웃이 잦다) 쓸 대체 소스.
+# 모두 FRED 가 받아 오는 원 출처라 값이 같다 (2026-09-30 대조 확인).
+#   kind: bls        → BLS 공개 API (키 없음, 요청당 10년)
+#         dbnomics   → DBnomics 시리즈 ID
+#         fed_ddp    → 연준 Data Download Program CSV (rel, 패키지 해시, 열 ID)
+#         nyfed      → 뉴욕연준 EFFR API 의 목표범위 상단(to)/하단(from)
+#         treasury   → 미 재무부 일별 수익률곡선 (long - short)
+# 여기 없는 시리즈(하이일드 스프레드 등 ICE BofA 계열)는 무료 대체 소스가 없어,
+# 환경변수 FRED_API_KEY 가 있으면 FRED 공식 API(api.stlouisfed.org)로만 재시도한다.
+# DEXUSEU·DEXJPUS 대체값은 일별이 아니라 H.10 월평균이다 — 월평균으로만 쓰이므로 결과는 같다.
+FRED_FALLBACKS = {
+    "CPIAUCNS": dict(kind="bls", series="CUUR0000SA0"),
+    "PCEPI":    dict(kind="dbnomics", series="BEA/NIPA-T20804/DPCERG-M"),
+    "M2SL":     dict(kind="fed_ddp", rel="H6", package="798e2796917702a5f8423426ba7e6b42", column="M2.M"),
+    "DEXUSEU":  dict(kind="fed_ddp", rel="H10", package="c5d6e0edf324b2fb28d73bcacafaaa02", column="RXI$US_N.M.EU"),
+    "DEXJPUS":  dict(kind="fed_ddp", rel="H10", package="c5d6e0edf324b2fb28d73bcacafaaa02", column="RXI_N.M.JA"),
+    "DFEDTARU": dict(kind="nyfed", side="targetRateTo"),
+    "DFEDTARL": dict(kind="nyfed", side="targetRateFrom"),
+    "T10Y2Y":   dict(kind="treasury", long="10 Yr", short="2 Yr"),
+}
+
 FRED = {
     "vix":        dict(id="VIXCLS",           name="VIX 지수",            unit="",   decimals=2, threshold=20,  below_is="good"),
     "ust10y":     dict(id="DGS10",            name="미국 10년물 국채금리", unit="%",  decimals=2, threshold=None, below_is=None),

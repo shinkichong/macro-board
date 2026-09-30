@@ -83,6 +83,9 @@ jobs:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           # 한국 수출증가율(ECOS 수출금액지수) 용. 없어도 돌아가며, 그때는 FRED(OECD 미러)로 떨어집니다.
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+          # FRED 가 응답하지 않을 때 하이일드 스프레드처럼 무료 대체 소스가 없는 계열용.
+          # 없어도 돌아가며, 그때 그 계열은 직전 값 + "갱신 실패" 배지로 남습니다.
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         continue-on-error: true
 
       - name: 페이지 빌드

@@ -34,6 +34,7 @@ python -m http.server 8000             # http://localhost:8000
 2. **Settings ▸ Actions ▸ General ▸ Workflow permissions** 를 `Read and write` 로 설정
 3. (선택) **Settings ▸ Secrets and variables ▸ Actions** 에 `KRX_API_KEY` 추가 — VKOSPI·코스피 용
 3-1. (선택) 같은 곳에 `ECOS_API_KEY` 추가 — 한국 수출증가율 용 (아래 설명 참고)
+3-2. (선택) 같은 곳에 `FRED_API_KEY` 추가 — FRED 가 응답하지 않을 때 하이일드 스프레드 용
 4. **Actions** 탭에서 `매크로 데이터 갱신` 을 한 번 수동 실행
 
 이후 미국 시장은 화~토 KST 약 06:17 + 07:23(재시도) + 12:37(오실레이터 보완), 국내 시장은 월~금 KST 약 21:14 + 22:43(재시도)
@@ -88,6 +89,21 @@ data/macro.json           수집된 시계열
 | 한국 수출증가율 (YoY) | 한국은행 ECOS `403Y001`(수출금액지수) → 실패 시 FRED `XTEXVA01KRM659S` | 아래 설명 참고 |
 
 FRED 는 API 키 없이 `fredgraph.csv` 로 받습니다. DBnomics·OECD 도 키가 필요 없습니다.
+
+FRED 가 응답하지 않으면(GitHub Actions IP 에서 30초 타임아웃이 잦음) 그 실행에서는 FRED 를 더 기다리지 않고
+원 출처로 바로 받습니다 (`sources.FRED_FALLBACKS`). 값은 FRED 와 같습니다.
+
+| FRED 계열 | 대체 소스 |
+|---|---|
+| `CPIAUCNS` | BLS 공개 API `CUUR0000SA0` |
+| `PCEPI` | DBnomics `BEA/NIPA-T20804/DPCERG-M` |
+| `M2SL` | 연준 H.6 (Data Download Program) `M2.M` |
+| `DEXUSEU` / `DEXJPUS` | 연준 H.10 월평균 |
+| `DFEDTARU` / `DFEDTARL` | 뉴욕연준 EFFR API 목표범위 |
+| `T10Y2Y` | 미 재무부 일별 수익률곡선 (10년 - 2년) |
+| `BAMLH0A0HYM2` (하이일드 스프레드) | 무료 대체 소스 없음 → `FRED_API_KEY` 가 있으면 FRED 공식 API. 없으면 직전 값 + "갱신 실패" |
+
+`FRED_API_KEY` 는 https://fredaccount.stlouisfed.org 에서 무료로 발급받아 저장소 Secrets 에 넣으면 됩니다(선택).
 즉 **어떤 계정 등록도 없이** 전부 돕니다.
 
 ## 화면 읽는 법
