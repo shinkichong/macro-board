@@ -449,6 +449,8 @@ function card(key, s){
   let pts = s.fixed_period_months ? lastMonths(full, s.fixed_period_months) : slice(full, STATE.years);
   const {state, word} = judge(s, full);
   const [lastDate, lastVal] = full[full.length - 1];
+  // 월별 지표는 그 달 1일로 저장돼 "2026-08-01"이 8월 1일로 읽히므로 연-월만 보인다.
+  const shownDate = s.freq === "monthly" ? lastDate.slice(0, 7) : lastDate;
   const prev = full[full.length - 2];
   const isPrice = s.threshold === null || s.threshold === undefined;
 
@@ -499,7 +501,7 @@ function card(key, s){
     <footer>
       <span>${s.source}${s.ref_url
         ? ` · <a href="${s.ref_url}" target="_blank" rel="noopener">${s.ref_label || "참고"}</a>` : ""}</span>
-      <span class="${s.stale ? "stale" : ""}">${s.stale ? "갱신 실패 · 직전 값 · " : ""}${lastDate}</span>
+      <span class="${s.stale ? "stale" : ""}">${s.stale ? "갱신 실패 · 직전 값 · " : ""}${shownDate}</span>
     </footer>`;
 
   el.querySelectorAll("[data-fx]").forEach(b => {
