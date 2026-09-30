@@ -13,9 +13,9 @@ on:
     # 21:17 / 22:23 UTC → 화~토 06:17 / 07:23 KST 에 찍힌다.
     - cron: "17 21 * * 1-5"
     - cron: "23 22 * * 1-5"
-    # 국내 데이터: 평일 KST 약 16:13 + 17:41 (마찬가지로 1시간 뒤 재시도) = UTC 07:13 / 08:41
-    - cron: "13 7 * * 1-5"
-    - cron: "41 8 * * 1-5"
+    # 국내 데이터: 평일 KST 약 21:14 + 22:43 (마찬가지로 1시간 뒤 재시도) = UTC 12:14 / 13:43
+    - cron: "14 12 * * 1-5"
+    - cron: "43 13 * * 1-5"
   workflow_dispatch:           # Actions 탭 수동 실행, 또는 대시보드의 "업데이트" 버튼(API 호출)
     inputs:
       group:
@@ -65,7 +65,7 @@ jobs:
           GROUP="${{ github.event.inputs.group }}"
           case "${{ github.event.schedule }}" in
             "17 21 * * 1-5"|"23 22 * * 1-5") python scripts/fetch_data.py --group "미국 시장" ;;
-            "13 7 * * 1-5"|"41 8 * * 1-5")   python scripts/fetch_data.py --group "국내 시장" ;;
+            "14 12 * * 1-5"|"43 13 * * 1-5") python scripts/fetch_data.py --group "국내 시장" ;;
             *)
               if [ -n "$GROUP" ] && [ "$GROUP" != "전체" ]; then
                 python scripts/fetch_data.py --group "$GROUP"
