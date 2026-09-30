@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import html
 import io
 import json
 import os
+import re
 import ssl
 import sys
 import time
@@ -301,22 +303,58 @@ def _drop_implausible_tail(data: list[list], floor: float = 25.0):
     return data, None
 
 
-def ism_pmi() -> tuple[list[list], dict]:
+_MONTHS = {m: i for i, m in enumerate(
+    ["January", "February", "March", "April", "May", "June", "July",
+     "August", "September", "October", "November", "December"], 1)}
+
+
+def _ism_prnewswire() -> dict[str, float]:
+    """PR Newswire 의 ISM 보도자료 목록 제목에서 월별 제조업 PMI 를 뽑는다.
+    제목 형식이 2025-08 무렵 "... Manufacturing ISM® Report On Business®" 에서
+    "... ISM® Manufacturing PMI® Report" 로 바뀌어 둘 다 받는다."""
+    text = html.unescape(get(S.ISM_PRN_URL).text)
+    pat = re.compile(r"Manufacturing PMI\S* at (\d{2}(?:\.\d)?)%;\s*([A-Z][a-z]+) (\d{4}) "
+                     r"(?:ISM\S* Manufacturing PMI|Manufacturing ISM)")
+    out = {}
+    for val, month, year in pat.findall(text):
+        if month in _MONTHS:
+            out[f"{year}-{_MONTHS[month]:02d}-01"] = float(val)
+    if not out:
+        raise RuntimeError("PR Newswire ISM: 제목에서 PMI 를 찾지 못함 (페이지 형식 변경 가능성)")
+    return out
+
+
+def ism_pmi(prev_data: list[list] | None = None) -> tuple[list[list], dict]:
+    """DBnomics 미러(과거치) + PR Newswire 보도자료(최근치)를 합친다.
+    보도자료 제목은 최초 발표치라 ISM 의 연례 계절조정 개정이 반영되지 않는다
+    (2024년분이 DBnomics 개정치와 0.1~0.4 차이). 그래서 같은 달이 겹치면
+    DBnomics 정상값을 우선하고, 보도자료는 DBnomics 가 비었거나 깨진 달만 채운다."""
+    have = {d: v for d, v in (prev_data or [])}
+    cut_at, clean = None, []
     for sid in S.ISM_CANDIDATES:
         try:
-            raw = dbnomics(sid)
+            clean, cut_at = _drop_implausible_tail(dbnomics(sid))
         except Exception:
             continue
-        clean, cut_at = _drop_implausible_tail(raw)
-        if not clean:
-            continue
-        if cut_at:
-            return clean, {"stale": True,
-                           "note": f"DBnomics ISM 미러가 {cut_at} 이후 비정상 값을 내놓기 "
-                                   "시작해 그 이전 마지막 정상값에서 멈춰 있습니다."}
-        return clean, {}
-    raise RuntimeError("ISM PMI 수집 실패. DBnomics 후보: "
-                       + ", ".join(dbnomics_search("ISM manufacturing PMI")))
+        if clean:
+            break
+    try:
+        for d, v in _ism_prnewswire().items():
+            have.setdefault(d, v)   # 이미 가진 달(DBnomics 개정치 등)은 덮지 않는다
+    except Exception as e:
+        have.update(dict(clean))
+        print(f"    PR Newswire 실패({e}) — DBnomics/직전 값만 사용", flush=True)
+        if not have:
+            raise RuntimeError("ISM PMI 수집 실패. DBnomics 후보: "
+                               + ", ".join(dbnomics_search("ISM manufacturing PMI")))
+        # 보도자료를 못 받았는데 DBnomics 가 깨진 구간에 걸려 있으면 멈춰 있다고 알린다
+        if cut_at and max(have) < cut_at:
+            return dedupe([[d, v] for d, v in have.items()]), {
+                "stale": True,
+                "note": f"DBnomics ISM 미러가 {cut_at} 이후 비정상 값을 내놓기 "
+                        "시작해 그 이전 마지막 정상값에서 멈춰 있습니다."}
+    have.update(dict(clean))
+    return dedupe([[d, v] for d, v in have.items()]), {}
 
 
 def fear_greed() -> list[list]:
@@ -1154,8 +1192,9 @@ def build_jobs(prev: dict, series: dict) -> dict:
         source_url="https://data-explorer.oecd.org/")
 
     jobs["ism_pmi"] = dict(
-        fn=ism_pmi, name="ISM 제조업지수", unit="", decimals=1,
-        threshold=50, below_is="bad", freq="monthly", source="ISM (DBnomics 경유)",
+        fn=(lambda: ism_pmi(prev.get("ism_pmi", {}).get("data"))),
+        name="ISM 제조업지수", unit="", decimals=1,
+        threshold=50, below_is="bad", freq="monthly", source="ISM (DBnomics · PR Newswire 보도자료)",
         source_url="https://db.nomics.world/ISM/pmi",
         ref_url=S.ISM_REF_URL, ref_label="값 대조", card_url=S.ISM_REF_URL)
 

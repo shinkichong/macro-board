@@ -81,7 +81,7 @@ data/macro.json           수집된 시계열
 | 실질 정책금리 | FRED `DFEDTARU`/`DFEDTARL` + `PCEPI` 합성 | 정책금리(목표범위 중간값) - 헤드라인 PCE(YoY). 기준선 0 |
 | 글로벌 M2 증감율 | FRED + ECB + PBOC + BOJ 합성 | 아래 설명 참고 |
 | OECD 경기선행지수 | OECD SDMX | FRED 미러는 갱신 중단됨 |
-| ISM 제조업지수 | DBnomics `ISM/pmi/pm` | 2016년 FRED 에서 삭제됨 |
+| ISM 제조업지수 | DBnomics `ISM/pmi/pm` + PR Newswire ISM 보도자료 제목 | 2016년 FRED 에서 삭제됨. DBnomics 미러가 2025-09 부터 깨져 최근치는 보도자료로 채움 |
 | 코스피 | KRX 공식 오픈API + Yahoo Finance → Stooq 보완 | 인증키 선택. 아래 설명 참고 |
 | 코스닥 | Yahoo Finance → Stooq | |
 | VKOSPI | KRX 공식 오픈API + 정보데이터시스템 | 인증키 선택. 아래 설명 참고 |

@@ -63,6 +63,11 @@ OECD_CLI_CANDIDATES = [
 # 데이터 소유권은 ISM 에 있으니 공개 배포 시 출처를 표기하세요.
 # ─────────────────────────────────────────────────────────────
 ISM_CANDIDATES = ["ISM/pmi/pm", "ISM/pmi/PM"]
+# DBnomics ISM 미러는 2025-09 부터 비정상 값(10~11대)을 내다가 2026-01 이후 갱신이
+# 끊겼다. ISM 은 매월 보도자료를 PR Newswire 로 배포하고, 그 제목에 헤드라인 PMI 가
+# 들어 있다 ("Manufacturing PMI® at 54.6%; August 2026 ISM® Manufacturing PMI® Report").
+# 목록 한 페이지(100건)에 약 2년치가 들어 있어 이걸로 최근 값을 채운다.
+ISM_PRN_URL = "https://www.prnewswire.com/news/institute-for-supply-management/?page=1&pagesize=100"
 
 # ─────────────────────────────────────────────────────────────
 # 글로벌 M2
