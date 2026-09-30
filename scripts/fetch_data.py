@@ -172,7 +172,17 @@ def yahoo(symbol: str, prev_data: list[list] | None = None) -> list[list]:
            f"?range={range_}&interval=1d")
     j = get(url).json()["chart"]["result"][0]
     ts = j["timestamp"]
-    closes = j["indicators"]["quote"][0]["close"]
+    closes = list(j["indicators"]["quote"][0]["close"])
+    # Yahoo 는 장 마감 뒤 몇 시간 동안 마지막 일봉 close 를 None 으로 둘 때가 있다
+    # (HYG·IEF 에서 자주 관측 — Fear&Greed 오실레이터가 하루 늦게 남는 원인).
+    # 정규장이 끝난 게 확실하면(regularMarketTime ≥ 정규장 종료) 그 캔들의 close 를
+    # meta.regularMarketPrice(=종가)로 채운다. 장중이면 건드리지 않는다.
+    meta = j.get("meta", {})
+    regular = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
+    if (ts and closes[-1] is None and meta.get("regularMarketPrice") is not None
+            and regular.get("start") and regular.get("end")
+            and regular["start"] <= ts[-1] < regular["end"] <= meta.get("regularMarketTime", 0)):
+        closes[-1] = meta["regularMarketPrice"]
     for t, c in zip(ts, closes):
         if c is None:
             continue
