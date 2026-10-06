@@ -34,6 +34,14 @@ FRED_FALLBACKS = {
     "T10Y2Y":   dict(kind="treasury", long="10 Yr", short="2 Yr"),
 }
 
+# 한국 수출증가율: 관세청 통관 수출액(달러) 기준.
+#  · 확정치 — ECOS 901Y118(수출입 총괄, 관세청) 수출금액 T002. 다음 달 중순~말에야 들어온다.
+#  · 속보치 — 산업통상부가 매월 1일 발표하는 "OOOO년 O월 수출입 동향" 보도자료.
+#    본문이 비어 있고 PDF/HWP 첨부만 있는 달이 많아, 본문 → PDF 순으로 숫자를 찾는다.
+#    뉴스에 나오는 "O월 수출 OO% 증가"가 이 값이다.
+KR_EXPORTS_ECOS = ("901Y118", "T002")
+MOTIE_BOARD_URL = "https://www.motir.go.kr/kor/article/ATCL3f49a5a8c"
+
 FRED = {
     "vix":        dict(id="VIXCLS",           name="VIX 지수",            unit="",   decimals=2, threshold=20,  below_is="good"),
     "ust10y":     dict(id="DGS10",            name="미국 10년물 국채금리", unit="%",  decimals=2, threshold=None, below_is=None),

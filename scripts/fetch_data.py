@@ -716,26 +716,98 @@ def _ecos_series(stat_code: str, item_code: str, start: str) -> list[list]:
 
 
 def kr_exports_yoy(prev_data: list[list] | None = None) -> list[list]:
-    """한국 수출증가율(YoY).
+    """한국 수출증가율(YoY) — 관세청 통관 수출액(달러) 기준.
 
-    한국은행 ECOS 수출금액지수(403Y001, 총지수 *AA)로 직접 전년동월비를
-    계산한다 — 관세청 통관 실적 기반 원자료라 갱신이 빠르고, OECD MEI 를
-    FRED 가 미러링하던 이전 소스(XTEXVA01KRM659S)보다 최신이다.
+    확정치(ECOS 901Y118)로 전년동월비를 계산하고, 확정치가 아직 없는 최근 달은
+    산업통상부가 매월 1일 발표하는 수출입동향 속보치로 채운다. 확정치가 나오면
+    그 달은 확정치로 바뀐다(속보치와 보통 1%p 이내 차이).
 
-    ECOS_API_KEY 가 없거나 ECOS 호출이 실패하면 이전 FRED 방식으로 떨어진다.
-    다만 그 미러는 2026-06 이후로 원본 자체가 갱신을 멈춘 상태다(README 참고).
-    이전 값과 병합해 과거치가 사라지지 않게 한다.
+    예전에는 한국은행 수출금액지수(403Y001)를 썼는데, 한 달 반 늦게 나오고
+    통관 기준보다 1~7%p 높게 나와 뉴스의 수출 증가율과 맞지 않았다.
+    ECOS 가 실패하면 직전 값을 유지하고 속보치만 덧붙인다.
     """
+    have = {d: v for d, v in (prev_data or [])}
+    last_final = None
     try:
-        idx = _ecos_series("403Y001", "*AA", START_MONTHLY)
-        return yoy(idx)
+        final = yoy(_ecos_series(*S.KR_EXPORTS_ECOS, START_MONTHLY))
+        have = {d: v for d, v in final}      # 확정치로 전면 교체(이전 기준 값 제거)
+        last_final = max(have)
     except Exception as e:
-        print(f"    ECOS 실패({e}) → FRED(OECD 미러) 로 대체", flush=True)
+        print(f"    ECOS 관세청 수출액 실패({e}) — 직전 값 유지", flush=True)
 
-    fresh = {d: v for d, v in fred("XTEXVA01KRM659S", START_MONTHLY)}
-    for d, v in (prev_data or []):
-        fresh.setdefault(d, v)
-    return [[d, fresh[d]] for d in sorted(fresh)]
+    try:
+        flash = _motie_exports(after=last_final or (max(have) if have else "2000-01-01"))
+        for d, v in flash.items():
+            print(f"    산업부 속보치 {d[:7]} = {v:+.1f}%", flush=True)
+            have[d] = v
+    except Exception as e:
+        print(f"    산업부 수출입동향 실패({e}) — 확정치만 사용", flush=True)
+
+    if not have:
+        raise RuntimeError("한국 수출증가율: 수집된 값이 없습니다.")
+    return [[d, have[d]] for d in sorted(have)]
+
+
+_MOTIE_TITLE = re.compile(r"(\d{4})년\s*(?:연간\s*및\s*)?(\d{1,2})월(?:\s*및\s*(?:상반기|연간))?\s*수출입\s*동향$")
+
+
+def _motie_exports(after: str, max_months: int = 3) -> dict[str, float]:
+    """산업통상부 보도자료 게시판에서 after 이후 달의 "O월 수출입 동향"을 찾아
+    전년동월비 수출 증가율을 읽는다. 게시판에 다른 글이 많아 제목 검색("수출입")을
+    쓰고, ICT 수출입 동향 등은 제목 형식으로 걸러낸다. 서버가 연속 요청을 끊는
+    것이 관측돼 요청 사이에 간격을 둔다."""
+    board = S.MOTIE_BOARD_URL
+    page = get(f"{board}?searchCondition=1&searchKeyword=%EC%88%98%EC%B6%9C%EC%9E%85&pageIndex=1",
+               headers={"User-Agent": UA}, timeout=20).text
+    posts = {}
+    for art_id, title in re.findall(
+            r'href="/kor/article/ATCL3f49a5a8c/(\d+)/view[^"]*"[^>]*>\s*<i>\s*([^<]*?)\s*</i>', page):
+        m = _MOTIE_TITLE.search(html.unescape(title).strip())
+        if m:
+            d = f"{int(m[1]):04d}-{int(m[2]):02d}-01"
+            if d > after:
+                posts.setdefault(d, art_id)
+
+    out = {}
+    for d in sorted(posts)[-max_months:]:
+        time.sleep(1.5)
+        v = _motie_export_growth(posts[d], int(d[:4]), int(d[5:7]))
+        if v is None:
+            print(f"    산업부 {d[:7]} 수출입동향에서 수출 증가율을 찾지 못함 (문구 변경 가능성)", flush=True)
+        else:
+            out[d] = v
+    return out
+
+
+def _motie_export_growth(art_id: str, year: int, month: int) -> float | None:
+    """보도자료 본문에서 먼저 찾고, 본문이 비어 있으면 첨부 PDF 첫 2쪽에서 찾는다."""
+    view = get(f"{S.MOTIE_BOARD_URL}/{art_id}/view", headers={"User-Agent": UA}, timeout=20).text
+    v = _parse_export_growth(re.sub(r"<[^>]+>", " ", html.unescape(view)), year, month)
+    if v is not None:
+        return v
+    pdf = re.search(r'href="(/attach/down/[^"]+)"[^>]*title="[^"]*\.pdf', view)
+    if not pdf:
+        return None
+    from pypdf import PdfReader     # PDF 를 열 때만 필요 — 없으면 이 달은 확정치를 기다린다
+    time.sleep(1.5)
+    raw = get("https://www.motir.go.kr" + pdf[1], headers={"User-Agent": UA}, timeout=60).content
+    text = " ".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(raw)).pages[:2])
+    return _parse_export_growth(text, year, month)
+
+
+def _parse_export_growth(text: str, year: int, month: int) -> float | None:
+    """"‘26.9월 수출은 전년 동월 대비 83.5% 증가" 또는 "9월 수출 1,209.4억 달러(+83.5%)".
+    감소는 "감소" 또는 "△" 로 표기된다. "1~9월 누적 수출"은 잡지 않는다."""
+    t = re.sub(r"\s+", " ", text)
+    m = re.search(rf"{year % 100:02d}\s*\.\s*{month}\s*월\s*수출은\s*전년\s*동월\s*대비\s*"
+                  r"([\d.]+)\s*%\s*(증가|감소)", t)
+    if m:
+        return float(m[1]) * (1 if m[2] == "증가" else -1)
+    m = re.search(rf"(?<![\d~～]){month}\s*월\s*수출\s*[\d,]+(?:\.\d+)?\s*억\s*달러\s*"
+                  r"\(\s*([+△▲-]?)\s*([\d.]+)\s*%\s*\)", t)
+    if m:
+        return float(m[2]) * (-1 if m[1] in ("△", "-") else 1)
+    return None
 
 
 def vkospi(prev_data: list[list] | None = None, trading_days: set[str] | None = None) -> list[list]:
@@ -1347,8 +1419,8 @@ def build_jobs(prev: dict, series: dict) -> dict:
         fn=(lambda: kr_exports_yoy(prev.get("kr_exports_yoy", {}).get("data"))),
         name="한국 수출증가율 (YoY)", unit="%", decimals=2,
         threshold=0, below_is="bad", freq="monthly",
-        source="한국은행 ECOS (수출금액지수 403Y001)",
-        source_url="https://ecos.bok.or.kr/#/SearchStat")
+        source="관세청 통관 수출액 (ECOS 901Y118) + 산업통상부 수출입동향 속보",
+        source_url="https://www.motir.go.kr/kor/article/ATCL3f49a5a8c")
 
     jobs["vkospi"] = dict(
         fn=(lambda: vkospi(prev.get("vkospi", {}).get("data"),
