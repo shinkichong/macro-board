@@ -1273,7 +1273,8 @@ def kr_credit_balance(market: str, prev_data: list[list] | None = None,
 
 
 CREDIT_PEAK_WINDOW = 250   # 낙폭 기준 고점을 찾는 구간 (약 1년 = 250 영업일)
-CREDIT_FLUSH_LINE = -20    # 차트 기준선 — 낙폭이 이 아래면 카드가 경고색이 된다
+# 차트 기준선 — 낙폭이 이 아래면 카드가 경고색이 된다. 코스닥은 변동이 커서 더 깊게 둔다.
+CREDIT_FLUSH_LINE = {"kospi": -20, "kosdaq": -30}
 CREDIT_SPEED_DAYS = 5      # 낙폭 속도: 최근 N 영업일 동안 낙폭이 몇 %p 커졌나
 
 
@@ -1581,7 +1582,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
             kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
             osc_legend="신용잔고 낙폭 (%)", price_legend=f"{idx_name}지수",
             osc_color="var(--ink)", osc_width=2.4, fixed_period_months=12, legend_bottom=True,
-            osc_ref=CREDIT_FLUSH_LINE,
+            osc_ref=CREDIT_FLUSH_LINE[mkt],
             note="")   # 현재 잔고·고점은 credit_index_combo 가 채운다
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
