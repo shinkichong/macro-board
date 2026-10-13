@@ -408,14 +408,16 @@ function dualChartSVG(oscPts, pricePts, opt){
   }).join("");
 
   /* matplotlib 처럼 범례를 플롯 박스 안쪽 모서리에, 배경 박스와 함께 그린다. */
+  // 위쪽 모서리에 선이 붙어 다니는 계열(예: 낙폭 0%)은 legendBottom 으로 아래 모서리에 둔다.
+  const ly = opt.legendBottom ? VB2.h - VB2.b - 15 : VB2.t + 3;
   function legendBox(x0, color, label, align){
     const textW = label.length * 4.1 + 19;
     const boxX = align === "end" ? x0 - textW : x0;
-    return `<rect x="${boxX.toFixed(1)}" y="${VB2.t + 3}" width="${textW.toFixed(1)}" height="12"
+    return `<rect x="${boxX.toFixed(1)}" y="${ly}" width="${textW.toFixed(1)}" height="12"
                   fill="var(--surface)" stroke="var(--rule)" stroke-width=".6"/>
             <line x1="${(boxX + 3).toFixed(1)}" x2="${(boxX + 15).toFixed(1)}"
-                  y1="${VB2.t + 9}" y2="${VB2.t + 9}" stroke="${color}" stroke-width="1.6"/>
-            <text x="${(boxX + 18).toFixed(1)}" y="${VB2.t + 11.5}" font-size="7.5"
+                  y1="${ly + 6}" y2="${ly + 6}" stroke="${color}" stroke-width="1.6"/>
+            <text x="${(boxX + 18).toFixed(1)}" y="${ly + 8.5}" font-size="7.5"
                   fill="${color}">${label}</text>`;
   }
   const legend = legendBox(VB2.l + 3, oscColor, opt.oscLegend, "start")
@@ -453,19 +455,20 @@ function card(key, s){
   const isDual = s.kind === "dual";
   const full = activeData(s);
   let pts = s.fixed_period_months ? lastMonths(full, s.fixed_period_months) : slice(full, STATE.years);
-  const {state, word} = judge(s, full);
+  // summary_tag 가 있는 카드(예: 신용잔고 낙폭)는 기준선·200일선 판정 대신 그 문구를 쓴다.
+  const {state, word} = s.summary_tag ? {state:"neutral", word:s.summary_tag} : judge(s, full);
   const [lastDate, lastVal] = full[full.length - 1];
   // 월별 지표는 그 달 1일로 저장돼 "2026-08-01"이 8월 1일로 읽히므로 연-월만 보인다.
   const shownDate = s.freq === "monthly" ? lastDate.slice(0, 7) : lastDate;
   const prev = full[full.length - 2];
-  const isPrice = s.threshold === null || s.threshold === undefined;
+  const isPrice = (s.threshold === null || s.threshold === undefined) && !s.delta_unit;
 
   let delta = "", dir = "";
   if(prev){
     const d = lastVal - prev[1];
     dir = d > 0 ? "up" : d < 0 ? "down" : "";
     delta = isPrice ? `${d >= 0 ? "+" : ""}${(d / prev[1] * 100).toFixed(2)}%`
-                    : `${d >= 0 ? "+" : ""}${fmt(d, s.decimals)}${s.unit}`;
+                    : `${d >= 0 ? "+" : ""}${fmt(d, s.decimals)}${s.delta_unit || s.unit}`;
   }
 
   // 듀얼 차트는 두 시리즈의 실제 보유 기간이 다를 수 있어(예: 한쪽 소스가 더 짧은
@@ -481,7 +484,8 @@ function card(key, s){
   const c = isDual
     ? dualChartSVG(pts, pricePts, {decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name,
         oscLegend: s.osc_legend, priceLegend: s.price_legend,
-        oscColor: s.osc_color, priceColor: s.price_color, oscWidth: s.osc_width})
+        oscColor: s.osc_color, priceColor: s.price_color, oscWidth: s.osc_width,
+        legendBottom: s.legend_bottom})
     : chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,
                      decimals:s.decimals, label:s.name,
                      ma: isPrice ? movingAverage(full, pts, 200) : null});

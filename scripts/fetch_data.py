@@ -1272,21 +1272,46 @@ def kr_credit_balance(market: str, prev_data: list[list] | None = None,
     return dedupe([[d, v] for d, v in have.items()])
 
 
+CREDIT_PEAK_WINDOW = 250   # 낙폭 기준 고점을 찾는 구간 (약 1년 = 250 영업일)
+
+
 def credit_index_combo(series: dict, prev: dict, credit_key: str, index_key: str,
                        label: str) -> tuple[list[list], dict]:
-    """신용융자 잔고와 지수를 한 차트에 겹쳐 그린다.
+    """신용융자 잔고의 낙폭(%)과 지수를 한 차트에 겹쳐 그린다.
 
-    협회 발표가 영업일 1~2일 늦으므로 신용잔고는 있는 날짜까지만 두고,
-    지수는 신용잔고 시작일부터 오늘(최신)까지 그대로 붙인다. 듀얼 차트가
-    두 계열 날짜의 합집합을 x 축으로 쓰므로 길이가 달라도 된다.
+    낙폭 = 그날 잔고 / 직전 1년(250 영업일) 최고 잔고 - 1. 고점이면 0%,
+    아래로 갈수록 고점에서 많이 줄었다는 뜻이다. 첫 1년은 기준 구간이
+    모자라 그리지 않는다(그래서 3년치를 쌓아둔다).
+
+    협회 발표가 영업일 1~2일 늦으므로 낙폭은 신용잔고 날짜까지만 두고,
+    지수는 최신까지 그대로 붙인다. 듀얼 차트가 두 계열 날짜의 합집합을
+    x 축으로 쓰므로 길이가 달라도 된다.
     """
     credit = series.get(credit_key, {}).get("data") or prev.get(credit_key, {}).get("data") or []
     index = {d: v for d, v in (series.get(index_key, {}).get("data")
                                or prev.get(index_key, {}).get("data") or [])}
-    if len(credit) < 30 or not index:
+    if len(credit) < CREDIT_PEAK_WINDOW + 30 or not index:
         raise RuntimeError(f"{label}: 데이터가 부족해 그릴 수 없습니다")
-    right = [[d, v] for d, v in sorted(index.items()) if d >= credit[0][0]]
-    return credit, {"price_data": right, "price_last_date": right[-1][0]}
+
+    vals = [v for _, v in credit]
+    dd, peaks = [], []
+    for i in range(CREDIT_PEAK_WINDOW - 1, len(credit)):
+        window = vals[i - CREDIT_PEAK_WINDOW + 1:i + 1]
+        peak = max(window)
+        dd.append([credit[i][0], round((vals[i] / peak - 1) * 100, 2)])
+        peaks.append((peak, credit[i - CREDIT_PEAK_WINDOW + 1 + window.index(peak)][0]))
+
+    last_year = (date.fromisoformat(dd[-1][0]) - timedelta(days=365)).isoformat()
+    mdd = min(v for d, v in dd if d >= last_year)
+    peak, peak_date = peaks[-1]
+    right = [[d, v] for d, v in sorted(index.items()) if d >= dd[0][0]]
+    return dd, {
+        "price_data": right, "price_last_date": right[-1][0],
+        "summary_tag": f"1년 MDD {mdd:.1f}%",
+        "note": (f"현재 잔고 {vals[-1]:.2f}조원 · 1년 고점 {peak:.2f}조원({peak_date}). "
+                 "검은 선은 직전 1년 최고 잔고 대비 줄어든 비율(0% = 고점)입니다. "
+                 "협회 발표가 영업일 1~2일 늦어 지수보다 짧게 끝납니다."),
+    }
 
 
 def dedupe(rows: list[list]) -> list[list]:
@@ -1545,14 +1570,14 @@ def build_jobs(prev: dict, series: dict) -> dict:
         jobs[f"{mkt}_credit_combo"] = dict(
             fn=(lambda m=mkt, n=idx_name: credit_index_combo(
                 series, prev, f"{m}_credit", m, f"{n} 신용잔고·지수")),
-            name=f"{idx_name} 신용융자 잔고 · {idx_name}지수", unit="조원", decimals=2,
+            name=f"{idx_name} 신용잔고 낙폭 · {idx_name}지수", unit="%", decimals=1,
+            delta_unit="%p",
             threshold=None, below_is=None, freq="daily",
             source="금융투자협회 FreeSIS · KRX / Yahoo Finance", source_url=S.KOFIA_REF_URL,
             kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
-            osc_legend="신용융자 잔고 (조원)", price_legend=f"{idx_name}지수",
-            osc_color="var(--ink)", osc_width=2.4, fixed_period_months=12,
-            note="증권사가 개인 투자자에게 빌려준 주식 매수 자금(신용거래융자) 잔고. "
-                 "협회 발표가 영업일 기준 1~2일 늦어 신용잔고 선은 지수보다 짧게 끝납니다.")
+            osc_legend="신용잔고 낙폭 (%)", price_legend=f"{idx_name}지수",
+            osc_color="var(--ink)", osc_width=2.4, fixed_period_months=12, legend_bottom=True,
+            note="")   # 현재 잔고·고점은 credit_index_combo 가 채운다
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
     jobs["kospi200_call_vol"] = dict(
