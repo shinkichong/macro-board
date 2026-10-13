@@ -364,7 +364,9 @@ function dualChartSVG(oscPts, pricePts, opt){
   const n = axis.length;
   const oscColor = opt.oscColor || OSC_COLOR, priceColor = opt.priceColor || PRICE_COLOR;
   const oscWidth = opt.oscWidth || 1.4;
-  const oScale = niceScale(Math.min(...oscPts.map(p => p[1])), Math.max(...oscPts.map(p => p[1])), 7);
+  // 기준선(oscRef)이 있으면 그 값도 축 범위에 넣어 항상 보이게 한다.
+  const oVals = oscPts.map(p => p[1]).concat(opt.oscRef != null ? [opt.oscRef] : []);
+  const oScale = niceScale(Math.min(...oVals), Math.max(...oVals), 7);
   const pScale = niceScale(Math.min(...pricePts.map(p => p[1])), Math.max(...pricePts.map(p => p[1])), 6);
   const oLo = oScale.lo, oHi = oScale.hi, pLo = pScale.lo, pHi = pScale.hi;
 
@@ -408,6 +410,14 @@ function dualChartSVG(oscPts, pricePts, opt){
   }).join("");
 
   /* matplotlib 처럼 범례를 플롯 박스 안쪽 모서리에, 배경 박스와 함께 그린다. */
+  const refLine = opt.oscRef == null ? "" : (() => {
+    const yy = yO(opt.oscRef).toFixed(1);
+    return `<line x1="${VB2.l}" x2="${VB2.w - VB2.r}" y1="${yy}" y2="${yy}"
+                  stroke="var(--bad)" stroke-width="1" stroke-dasharray="4 3"/>
+            <text x="${VB2.l + 4}" y="${(+yy - 3).toFixed(1)}" font-size="7.5"
+                  fill="var(--bad)">${fmt(opt.oscRef, opt.decimals)}</text>`;
+  })();
+
   // 위쪽 모서리에 선이 붙어 다니는 계열(예: 낙폭 0%)은 legendBottom 으로 아래 모서리에 둔다.
   const ly = opt.legendBottom ? VB2.h - VB2.b - 15 : VB2.t + 3;
   function legendBox(x0, color, label, align){
@@ -432,7 +442,7 @@ function dualChartSVG(oscPts, pricePts, opt){
             stroke-linejoin="round" stroke-linecap="round"/>
       <path d="${oscLine}" fill="none" stroke="${oscColor}" stroke-width="${oscWidth}"
             stroke-linejoin="round" stroke-linecap="round"/>
-      ${oLabels}${pLabels}${xLabels}${legend}
+      ${refLine}${oLabels}${pLabels}${xLabels}${legend}
     </svg>`
   };
 }
@@ -455,8 +465,12 @@ function card(key, s){
   const isDual = s.kind === "dual";
   const full = activeData(s);
   let pts = s.fixed_period_months ? lastMonths(full, s.fixed_period_months) : slice(full, STATE.years);
-  // summary_tag 가 있는 카드(예: 신용잔고 낙폭)는 기준선·200일선 판정 대신 그 문구를 쓴다.
-  const {state, word} = s.summary_tag ? {state:"neutral", word:s.summary_tag} : judge(s, full);
+  // summary_tag 가 있는 카드(예: 신용잔고 낙폭)는 기준선·200일선 판정 대신 그 문구(들)를 쓴다.
+  // 그때 카드 색은 osc_ref(기준선) 아래로 내려갔을 때만 경고색으로 바꾼다.
+  const {state, word} = s.summary_tag
+    ? {state: s.osc_ref != null && full[full.length - 1][1] <= s.osc_ref ? "bad" : "neutral",
+       word: s.summary_tag}
+    : judge(s, full);
   const [lastDate, lastVal] = full[full.length - 1];
   // 월별 지표는 그 달 1일로 저장돼 "2026-08-01"이 8월 1일로 읽히므로 연-월만 보인다.
   const shownDate = s.freq === "monthly" ? lastDate.slice(0, 7) : lastDate;
@@ -485,7 +499,7 @@ function card(key, s){
     ? dualChartSVG(pts, pricePts, {decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name,
         oscLegend: s.osc_legend, priceLegend: s.price_legend,
         oscColor: s.osc_color, priceColor: s.price_color, oscWidth: s.osc_width,
-        legendBottom: s.legend_bottom})
+        legendBottom: s.legend_bottom, oscRef: s.osc_ref})
     : chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,
                      decimals:s.decimals, label:s.name,
                      ma: isPrice ? movingAverage(full, pts, 200) : null});
@@ -505,7 +519,7 @@ function card(key, s){
     <div class="readout">
       <span class="now">${fmt(lastVal, s.decimals)}${s.unit}</span>
       ${delta ? `<span class="delta" data-dir="${dir}">${delta}</span>` : ""}
-      ${word ? `<span class="tag">${word}</span>` : ""}
+      ${[].concat(word || []).map(w => `<span class="tag">${w}</span>`).join("")}
     </div>
     ${s.note ? `<p class="note">${s.note}</p>` : ""}
     <div class="chart">${c.markup}</div>

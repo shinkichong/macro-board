@@ -1273,6 +1273,8 @@ def kr_credit_balance(market: str, prev_data: list[list] | None = None,
 
 
 CREDIT_PEAK_WINDOW = 250   # 낙폭 기준 고점을 찾는 구간 (약 1년 = 250 영업일)
+CREDIT_FLUSH_LINE = -20    # 차트 기준선 — 낙폭이 이 아래면 카드가 경고색이 된다
+CREDIT_SPEED_DAYS = 5      # 낙폭 속도: 최근 N 영업일 동안 낙폭이 몇 %p 커졌나
 
 
 def credit_index_combo(series: dict, prev: dict, credit_key: str, index_key: str,
@@ -1304,12 +1306,14 @@ def credit_index_combo(series: dict, prev: dict, credit_key: str, index_key: str
     last_year = (date.fromisoformat(dd[-1][0]) - timedelta(days=365)).isoformat()
     mdd = min(v for d, v in dd if d >= last_year)
     peak, peak_date = peaks[-1]
+    speed = dd[-1][1] - dd[-1 - CREDIT_SPEED_DAYS][1]
     right = [[d, v] for d, v in sorted(index.items()) if d >= dd[0][0]]
     return dd, {
         "price_data": right, "price_last_date": right[-1][0],
-        "summary_tag": f"1년 MDD {mdd:.1f}%",
+        "summary_tag": [f"1년 MDD {mdd:.1f}%", f"{CREDIT_SPEED_DAYS}일 {speed:+.1f}%p"],
         "note": (f"현재 잔고 {vals[-1]:.2f}조원 · 1년 고점 {peak:.2f}조원({peak_date}). "
-                 "검은 선은 직전 1년 최고 잔고 대비 줄어든 비율(0% = 고점)입니다. "
+                 "검은 선은 직전 1년 최고 잔고 대비 줄어든 비율(0% = 고점), "
+                 f"'{CREDIT_SPEED_DAYS}일'은 최근 {CREDIT_SPEED_DAYS}영업일 동안 낙폭 변화입니다. "
                  "협회 발표가 영업일 1~2일 늦어 지수보다 짧게 끝납니다."),
     }
 
@@ -1577,6 +1581,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
             kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
             osc_legend="신용잔고 낙폭 (%)", price_legend=f"{idx_name}지수",
             osc_color="var(--ink)", osc_width=2.4, fixed_period_months=12, legend_bottom=True,
+            osc_ref=CREDIT_FLUSH_LINE,
             note="")   # 현재 잔고·고점은 credit_index_combo 가 채운다
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
