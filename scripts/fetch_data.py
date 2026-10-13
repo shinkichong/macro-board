@@ -1274,23 +1274,19 @@ def kr_credit_balance(market: str, prev_data: list[list] | None = None,
 
 def credit_index_combo(series: dict, prev: dict, credit_key: str, index_key: str,
                        label: str) -> tuple[list[list], dict]:
-    """신용융자 잔고와 지수를 한 차트에 겹쳐 보기 위해 날짜를 맞춘다.
+    """신용융자 잔고와 지수를 한 차트에 겹쳐 그린다.
 
-    듀얼 차트는 두 계열을 위치(인덱스)로 그리므로 길이와 날짜가 같아야 한다.
-    신용잔고 쪽 날짜를 기준으로 그날 지수 종가를 붙인다 — 협회 발표가 1~2일
-    늦어서, 지수는 단독 카드보다 며칠 전 값까지만 보인다.
+    협회 발표가 영업일 1~2일 늦으므로 신용잔고는 있는 날짜까지만 두고,
+    지수는 신용잔고 시작일부터 오늘(최신)까지 그대로 붙인다. 듀얼 차트가
+    두 계열 날짜의 합집합을 x 축으로 쓰므로 길이가 달라도 된다.
     """
     credit = series.get(credit_key, {}).get("data") or prev.get(credit_key, {}).get("data") or []
     index = {d: v for d, v in (series.get(index_key, {}).get("data")
                                or prev.get(index_key, {}).get("data") or [])}
-    left, right = [], []
-    for d, v in credit:
-        if d in index:
-            left.append([d, v])
-            right.append([d, index[d]])
-    if len(left) < 30:
-        raise RuntimeError(f"{label}: 겹치는 날짜가 {len(left)}개뿐 — 계산 불가")
-    return left, {"price_data": right}
+    if len(credit) < 30 or not index:
+        raise RuntimeError(f"{label}: 데이터가 부족해 그릴 수 없습니다")
+    right = [[d, v] for d, v in sorted(index.items()) if d >= credit[0][0]]
+    return credit, {"price_data": right, "price_last_date": right[-1][0]}
 
 
 def dedupe(rows: list[list]) -> list[list]:
@@ -1554,8 +1550,9 @@ def build_jobs(prev: dict, series: dict) -> dict:
             source="금융투자협회 FreeSIS · KRX / Yahoo Finance", source_url=S.KOFIA_REF_URL,
             kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
             osc_legend="신용융자 잔고 (조원)", price_legend=f"{idx_name}지수",
+            osc_color="#d93636", price_color="var(--ink)",
             note="증권사가 개인 투자자에게 빌려준 주식 매수 자금(신용거래융자) 잔고. "
-                 "협회 발표가 영업일 기준 1~2일 늦어 지수도 그 날짜까지만 그립니다.")
+                 "협회 발표가 영업일 기준 1~2일 늦어 신용잔고 선은 지수보다 짧게 끝납니다.")
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
     jobs["kospi200_call_vol"] = dict(

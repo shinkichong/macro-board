@@ -357,7 +357,12 @@ function niceScale(lo, hi, tickCount){
 }
 
 function dualChartSVG(oscPts, pricePts, opt){
-  const n = oscPts.length;
+  /* 두 계열의 날짜가 다를 수 있다(예: 신용잔고는 발표가 늦어 지수보다 짧다).
+     x 축은 두 계열 날짜의 합집합으로 잡고, 각 점은 자기 날짜 위치에 찍는다. */
+  const axis = [...new Set([...oscPts, ...pricePts].map(p => p[0]))].sort();
+  const pos = new Map(axis.map((d, i) => [d, i]));
+  const n = axis.length;
+  const oscColor = opt.oscColor || OSC_COLOR, priceColor = opt.priceColor || PRICE_COLOR;
   const oScale = niceScale(Math.min(...oscPts.map(p => p[1])), Math.max(...oscPts.map(p => p[1])), 7);
   const pScale = niceScale(Math.min(...pricePts.map(p => p[1])), Math.max(...pricePts.map(p => p[1])), 6);
   const oLo = oScale.lo, oHi = oScale.hi, pLo = pScale.lo, pHi = pScale.hi;
@@ -367,13 +372,13 @@ function dualChartSVG(oscPts, pricePts, opt){
   const yP = v => VB2.t + (1 - (v - pLo) / (pHi - pLo)) * (VB2.h - VB2.t - VB2.b);
 
   const oscLine = oscPts.map((p, i) =>
-    `${i ? "L" : "M"}${x(i).toFixed(1)},${yO(p[1]).toFixed(1)}`).join("");
+    `${i ? "L" : "M"}${x(pos.get(p[0])).toFixed(1)},${yO(p[1]).toFixed(1)}`).join("");
   const priceLine = pricePts.map((p, i) =>
-    `${i ? "L" : "M"}${x(i).toFixed(1)},${yP(p[1]).toFixed(1)}`).join("");
+    `${i ? "L" : "M"}${x(pos.get(p[0])).toFixed(1)},${yP(p[1]).toFixed(1)}`).join("");
 
   const oTicks = oScale.ticks;
   const pTicks = pScale.ticks;
-  const mTicks = monthTicks(oscPts, x, 40);
+  const mTicks = monthTicks(axis.map(d => [d]), x, 40);
 
   const hGrid = oTicks.map(v => {
     const yy = yO(v).toFixed(1);
@@ -388,12 +393,12 @@ function dualChartSVG(oscPts, pricePts, opt){
   const oLabels = oTicks.map(v => {
     const yy = yO(v).toFixed(1);
     return `<text x="${VB2.l - 5}" y="${(+yy + 2.8).toFixed(1)}" font-size="8"
-                  text-anchor="end" fill="${OSC_COLOR}">${fmt(v, opt.decimals)}</text>`;
+                  text-anchor="end" fill="${oscColor}">${fmt(v, opt.decimals)}</text>`;
   }).join("");
   const pLabels = pTicks.map(v => {
     const yy = yP(v).toFixed(1);
     return `<text x="${VB2.w - VB2.r + 5}" y="${(+yy + 2.8).toFixed(1)}" font-size="8"
-                  fill="${PRICE_COLOR}">${fmt(v, opt.priceDecimals)}</text>`;
+                  fill="${priceColor}">${fmt(v, opt.priceDecimals)}</text>`;
   }).join("");
   const xLabels = mTicks.map(t => {
     const xx = x(t.i).toFixed(1);
@@ -412,17 +417,17 @@ function dualChartSVG(oscPts, pricePts, opt){
             <text x="${(boxX + 18).toFixed(1)}" y="${VB2.t + 11.5}" font-size="7.5"
                   fill="${color}">${label}</text>`;
   }
-  const legend = legendBox(VB2.l + 3, OSC_COLOR, opt.oscLegend, "start")
-               + legendBox(VB2.w - VB2.r - 3, PRICE_COLOR, opt.priceLegend, "end");
+  const legend = legendBox(VB2.l + 3, oscColor, opt.oscLegend, "start")
+               + legendBox(VB2.w - VB2.r - 3, priceColor, opt.priceLegend, "end");
 
   return {
     markup:`<svg viewBox="0 0 ${VB2.w} ${VB2.h}" role="img" aria-label="${opt.label} 추이">
       ${hGrid}${vGrid}
       <rect x="${VB2.l}" y="${VB2.t}" width="${VB2.w - VB2.l - VB2.r}" height="${VB2.h - VB2.t - VB2.b}"
             fill="none" stroke="var(--rule)" stroke-width="1"/>
-      <path d="${priceLine}" fill="none" stroke="${PRICE_COLOR}" stroke-width="1.4"
+      <path d="${priceLine}" fill="none" stroke="${priceColor}" stroke-width="1.4"
             stroke-linejoin="round" stroke-linecap="round"/>
-      <path d="${oscLine}" fill="none" stroke="${OSC_COLOR}" stroke-width="1.4"
+      <path d="${oscLine}" fill="none" stroke="${oscColor}" stroke-width="1.4"
             stroke-linejoin="round" stroke-linecap="round"/>
       ${oLabels}${pLabels}${xLabels}${legend}
     </svg>`
@@ -474,7 +479,8 @@ function card(key, s){
 
   const c = isDual
     ? dualChartSVG(pts, pricePts, {decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name,
-        oscLegend: s.osc_legend, priceLegend: s.price_legend})
+        oscLegend: s.osc_legend, priceLegend: s.price_legend,
+        oscColor: s.osc_color, priceColor: s.price_color})
     : chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,
                      decimals:s.decimals, label:s.name,
                      ma: isPrice ? movingAverage(full, pts, 200) : null});
@@ -501,7 +507,8 @@ function card(key, s){
     <footer>
       <span>${s.source}${s.ref_url
         ? ` · <a href="${s.ref_url}" target="_blank" rel="noopener">${s.ref_label || "참고"}</a>` : ""}</span>
-      <span class="${s.stale ? "stale" : ""}">${s.stale ? "갱신 실패 · 직전 값 · " : ""}${shownDate}</span>
+      <span class="${s.stale ? "stale" : ""}">${s.stale ? "갱신 실패 · 직전 값 · " : ""}${s.price_last_date && s.price_last_date !== lastDate
+        ? `${s.osc_legend.split(" (")[0]} ${shownDate} · ${s.price_legend} ${s.price_last_date}` : shownDate}</span>
     </footer>`;
 
   el.querySelectorAll("[data-fx]").forEach(b => {
