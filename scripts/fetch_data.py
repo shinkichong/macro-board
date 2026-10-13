@@ -1312,10 +1312,7 @@ def credit_index_combo(series: dict, prev: dict, credit_key: str, index_key: str
     return dd, {
         "price_data": right, "price_last_date": right[-1][0],
         "summary_tag": [f"1년 MDD {mdd:.1f}%", f"{CREDIT_SPEED_DAYS}일 {speed:+.1f}%p"],
-        "note": (f"현재 잔고 {vals[-1]:.2f}조원 · 1년 고점 {peak:.2f}조원({peak_date}). "
-                 "검은 선은 직전 1년 최고 잔고 대비 줄어든 비율(0% = 고점), "
-                 f"'{CREDIT_SPEED_DAYS}일'은 최근 {CREDIT_SPEED_DAYS}영업일 동안 낙폭 변화입니다. "
-                 "협회 발표가 영업일 1~2일 늦어 지수보다 짧게 끝납니다."),
+        "note": f"잔고 {vals[-1]:.2f}조 · 1년 고점 {peak:.2f}조({peak_date[5:].replace('-', '/')}) 대비 낙폭",
     }
 
 
