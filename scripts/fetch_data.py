@@ -1550,7 +1550,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
             source="금융투자협회 FreeSIS · KRX / Yahoo Finance", source_url=S.KOFIA_REF_URL,
             kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
             osc_legend="신용융자 잔고 (조원)", price_legend=f"{idx_name}지수",
-            osc_color="#d93636", price_color="var(--ink)",
+            osc_color="var(--ink)", osc_width=2.4, fixed_period_months=12,
             note="증권사가 개인 투자자에게 빌려준 주식 매수 자금(신용거래융자) 잔고. "
                  "협회 발표가 영업일 기준 1~2일 늦어 신용잔고 선은 지수보다 짧게 끝납니다.")
 

@@ -363,6 +363,7 @@ function dualChartSVG(oscPts, pricePts, opt){
   const pos = new Map(axis.map((d, i) => [d, i]));
   const n = axis.length;
   const oscColor = opt.oscColor || OSC_COLOR, priceColor = opt.priceColor || PRICE_COLOR;
+  const oscWidth = opt.oscWidth || 1.4;
   const oScale = niceScale(Math.min(...oscPts.map(p => p[1])), Math.max(...oscPts.map(p => p[1])), 7);
   const pScale = niceScale(Math.min(...pricePts.map(p => p[1])), Math.max(...pricePts.map(p => p[1])), 6);
   const oLo = oScale.lo, oHi = oScale.hi, pLo = pScale.lo, pHi = pScale.hi;
@@ -427,7 +428,7 @@ function dualChartSVG(oscPts, pricePts, opt){
             fill="none" stroke="var(--rule)" stroke-width="1"/>
       <path d="${priceLine}" fill="none" stroke="${priceColor}" stroke-width="1.4"
             stroke-linejoin="round" stroke-linecap="round"/>
-      <path d="${oscLine}" fill="none" stroke="${oscColor}" stroke-width="1.4"
+      <path d="${oscLine}" fill="none" stroke="${oscColor}" stroke-width="${oscWidth}"
             stroke-linejoin="round" stroke-linecap="round"/>
       ${oLabels}${pLabels}${xLabels}${legend}
     </svg>`
@@ -480,7 +481,7 @@ function card(key, s){
   const c = isDual
     ? dualChartSVG(pts, pricePts, {decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name,
         oscLegend: s.osc_legend, priceLegend: s.price_legend,
-        oscColor: s.osc_color, priceColor: s.price_color})
+        oscColor: s.osc_color, priceColor: s.price_color, oscWidth: s.osc_width})
     : chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,
                      decimals:s.decimals, label:s.name,
                      ma: isPrice ? movingAverage(full, pts, 200) : null});
