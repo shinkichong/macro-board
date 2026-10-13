@@ -1218,6 +1218,81 @@ def kospi_fear_greed_osc(series: dict, prev: dict) -> tuple[list[list], dict]:
     return osc, {"price_data": price}
 
 
+_KOFIA_CACHE: dict[tuple[str, str], list[dict]] = {}
+
+
+def _kofia_credit_rows(start: str, end: str) -> list[dict]:
+    """금융투자협회 FreeSIS 신용공여 잔고추이 (기간 조회, YYYYMMDD).
+    코스피·코스닥 두 카드가 같은 응답을 쓰므로 한 실행 안에서는 캐시한다."""
+    if (start, end) not in _KOFIA_CACHE:
+        body = {"dmSearch": {"tmpV40": "1000000", "tmpV41": "1", "tmpV1": "D",
+                             "tmpV45": start, "tmpV46": end, "OBJ_NM": S.KOFIA_CREDIT_OBJ}}
+        r = session.post(S.KOFIA_URL, json=body, timeout=TIMEOUT,
+                         headers={"Referer": S.KOFIA_REF_URL})
+        r.raise_for_status()
+        _KOFIA_CACHE[(start, end)] = r.json().get("ds1") or []
+    return _KOFIA_CACHE[(start, end)]
+
+
+def kr_credit_balance(market: str, prev_data: list[list] | None = None,
+                      trading_days: set[str] | None = None) -> list[list]:
+    """신용거래융자 잔고(조원). 처음엔 1년치를 한 번에 적재하고, 이후에는
+    마지막 날짜 며칠 전부터 오늘까지만 조회해 이어 붙인다 — 하루치씩 쌓이고,
+    며칠 수집이 빠져도 다음 실행에서 메워진다. 이미 저장된 과거치는 FreeSIS
+    조회 구간 밖으로 밀려나도 그대로 남는다."""
+    have = {d: v for d, v in (prev_data or [])}
+    today = date.today()
+    backfill_from = today - timedelta(days=S.KOFIA_CREDIT_BACKFILL_DAYS)
+    if not have:
+        start = backfill_from
+        print(f"    과거치 없음 → {start} 부터 적재", flush=True)
+    elif date.fromisoformat(min(have)) > backfill_from + timedelta(days=10):
+        # 보관 구간을 늘렸으면 앞쪽 빈 구간까지 한 번에 다시 받는다
+        start = backfill_from
+        print(f"    보관 시작일 {min(have)} → {start} 부터 보충", flush=True)
+    else:
+        # 협회가 최근 며칠 값을 정정하는 경우를 대비해 마지막 날짜 7일 전부터 다시 받는다
+        start = date.fromisoformat(max(have)) - timedelta(days=7)
+
+    col = S.KOFIA_CREDIT_COLS[market]
+    got = 0
+    for row in _kofia_credit_rows(start.strftime("%Y%m%d"), today.strftime("%Y%m%d")):
+        raw, v = str(row.get("TMPV1", "")), row.get(col)
+        if len(raw) != 8 or v in (None, ""):
+            continue
+        d = f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+        have[d] = round(float(v) / 1_000_000, 4)   # 백만원 → 조원
+        got += 1
+    print(f"    FreeSIS 에서 {got}일치 확인", flush=True)
+
+    if not have:
+        raise RuntimeError("신용잔고: 금융투자협회 FreeSIS 응답이 비었습니다.")
+    # 협회 발표가 영업일 1~2일 늦으므로 여유를 넉넉히 둔다
+    _check_kr_staleness(have, trading_days, f"신용잔고({market})", buffer_days=4)
+    return dedupe([[d, v] for d, v in have.items()])
+
+
+def credit_index_combo(series: dict, prev: dict, credit_key: str, index_key: str,
+                       label: str) -> tuple[list[list], dict]:
+    """신용융자 잔고와 지수를 한 차트에 겹쳐 보기 위해 날짜를 맞춘다.
+
+    듀얼 차트는 두 계열을 위치(인덱스)로 그리므로 길이와 날짜가 같아야 한다.
+    신용잔고 쪽 날짜를 기준으로 그날 지수 종가를 붙인다 — 협회 발표가 1~2일
+    늦어서, 지수는 단독 카드보다 며칠 전 값까지만 보인다.
+    """
+    credit = series.get(credit_key, {}).get("data") or prev.get(credit_key, {}).get("data") or []
+    index = {d: v for d, v in (series.get(index_key, {}).get("data")
+                               or prev.get(index_key, {}).get("data") or [])}
+    left, right = [], []
+    for d, v in credit:
+        if d in index:
+            left.append([d, v])
+            right.append([d, index[d]])
+    if len(left) < 30:
+        raise RuntimeError(f"{label}: 겹치는 날짜가 {len(left)}개뿐 — 계산 불가")
+    return left, {"price_data": right}
+
+
 def dedupe(rows: list[list]) -> list[list]:
     """날짜 오름차순 정렬 + 중복 날짜 제거."""
     seen, out = set(), []
@@ -1452,6 +1527,35 @@ def build_jobs(prev: dict, series: dict) -> dict:
                                          trading_days=_kr_trading_days(series, prev))),
         name="10년 국채선물지수", unit="", decimals=2,
         threshold=None, below_is=None, freq="daily", source="KRX", source_url="")
+
+    jobs["kospi_credit"] = dict(
+        fn=(lambda: kr_credit_balance("kospi", prev.get("kospi_credit", {}).get("data"),
+                                      trading_days=_kr_trading_days(series, prev))),
+        name="코스피 신용융자 잔고", unit="조원", decimals=2,
+        threshold=None, below_is=None, freq="daily",
+        source="금융투자협회 FreeSIS (신용공여 잔고추이)", source_url=S.KOFIA_REF_URL,
+        note="증권사가 개인 투자자에게 빌려준 주식 매수 자금(신용거래융자) 잔고. "
+             "협회 발표가 영업일 기준 1~2일 늦습니다.")
+    jobs["kosdaq_credit"] = dict(
+        fn=(lambda: kr_credit_balance("kosdaq", prev.get("kosdaq_credit", {}).get("data"),
+                                      trading_days=_kr_trading_days(series, prev))),
+        name="코스닥 신용융자 잔고", unit="조원", decimals=2,
+        threshold=None, below_is=None, freq="daily",
+        source="금융투자협회 FreeSIS (신용공여 잔고추이)", source_url=S.KOFIA_REF_URL,
+        note="증권사가 개인 투자자에게 빌려준 주식 매수 자금(신용거래융자) 잔고. "
+             "협회 발표가 영업일 기준 1~2일 늦습니다.")
+
+    for mkt, idx_name in (("kospi", "코스피"), ("kosdaq", "코스닥")):
+        jobs[f"{mkt}_credit_combo"] = dict(
+            fn=(lambda m=mkt, n=idx_name: credit_index_combo(
+                series, prev, f"{m}_credit", m, f"{n} 신용잔고·지수")),
+            name=f"{idx_name} 신용융자 잔고 · {idx_name}지수", unit="조원", decimals=2,
+            threshold=None, below_is=None, freq="daily",
+            source="금융투자협회 FreeSIS · KRX / Yahoo Finance", source_url=S.KOFIA_REF_URL,
+            kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
+            osc_legend="신용융자 잔고 (조원)", price_legend=f"{idx_name}지수",
+            note="증권사가 개인 투자자에게 빌려준 주식 매수 자금(신용거래융자) 잔고. "
+                 "협회 발표가 영업일 기준 1~2일 늦어 지수도 그 날짜까지만 그립니다.")
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
     jobs["kospi200_call_vol"] = dict(

@@ -202,6 +202,19 @@ VKOSPI_PAYLOAD_CANDIDATES = [
     ("dbms/MDC/STAT/standard/MDCSTAT00301", {"indIdx": "5", "indIdx2": "300"}),
 ]
 
+# ─────────────────────────────────────────────────────────────
+# 신용거래융자 잔고 (코스피 / 코스닥): 금융투자협회 FreeSIS ▸ 신용공여 잔고추이.
+# 인증키 없이 기간 조회가 되는 화면 내부 JSON 엔드포인트(공식 공개 API 아님).
+# 응답 단위는 백만원, 영업일 기준 1~2일 늦게 올라온다.
+#   TMPV1 일자 · TMPV2 융자 합계 · TMPV3 유가증권 · TMPV4 코스닥
+#   TMPV5~7 대주(합계/유가/코스닥) · TMPV8 청약자금대출 · TMPV9 예탁증권담보융자
+# ─────────────────────────────────────────────────────────────
+KOFIA_URL = "https://freesis.kofia.or.kr/meta/getMetaDataList.do"
+KOFIA_CREDIT_OBJ = "STATSCU0100000070BO"
+KOFIA_CREDIT_COLS = {"kospi": "TMPV3", "kosdaq": "TMPV4"}
+KOFIA_CREDIT_BACKFILL_DAYS = 365 * 3   # 채워둘 과거 구간 (모자라면 다음 실행에서 앞쪽을 보충)
+KOFIA_REF_URL = "https://freesis.kofia.or.kr/"
+
 VKOSPI_REF_URL = "https://kr.investing.com/indices/kospi-volatility"
 
 # DBnomics의 ISM 미러가 깨졌을 때 눈으로 최신값을 대조할 참고 링크.
@@ -219,15 +232,19 @@ LAYOUT = [
         "ust10y", "rate_hy_combo", "yc_10y2y",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
-    dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr", "kr_exports_yoy"]),
+    dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr",
+                                  "kospi_credit_combo", "kosdaq_credit_combo", "kr_exports_yoy"]),
 ]
 
 # LAYOUT 에는 없지만(카드로 안 뜸) 그 그룹을 --group 으로 갱신할 때 같이 갱신해야 하는
 # 내부 전용 시리즈. 코스피200 옵션 콜/풋 원거래량과 국채선물지수 2종은 카드로
 # 노출하지 않지만 kospi_fg_osc 계산에 쓰여서 계속 수집은 해야 한다.
+# 신용융자 잔고 2종도 단독 카드 대신 지수와 겹친 콤보 카드로만 보여주지만,
+# 원본은 날짜 손실 없이 따로 쌓아둔다.
 INTERNAL_GROUP_EXTRAS = {
     "국내 시장": {"kospi200_call_vol", "kospi200_put_vol",
-                "bond5y_futures", "bond10y_futures"},
+                "bond5y_futures", "bond10y_futures",
+                "kospi_credit", "kosdaq_credit"},
 }
 
 # ─────────────────────────────────────────────────────────────
