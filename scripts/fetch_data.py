@@ -1274,45 +1274,62 @@ def kr_credit_balance(market: str, prev_data: list[list] | None = None,
 
 CREDIT_PEAK_WINDOW = 250   # 낙폭 기준 고점을 찾는 구간 (약 1년 = 250 영업일)
 # 차트 기준선 — 낙폭이 이 아래면 카드가 경고색이 된다. 코스닥은 변동이 커서 더 깊게 둔다.
+# 지수 낙폭 카드도 같은 기준선을 쓴다.
 CREDIT_FLUSH_LINE = {"kospi": -20, "kosdaq": -30}
 CREDIT_SPEED_DAYS = 5      # 낙폭 속도: 최근 N 영업일 동안 낙폭이 몇 %p 커졌나
+
+
+def _rolling_drawdown(rows: list[list], label: str) -> dict:
+    """직전 1년(CREDIT_PEAK_WINDOW 영업일) 최고치 대비 낙폭(%) 계열과 요약값.
+    고점이면 0%, 아래로 갈수록 고점에서 많이 빠졌다는 뜻이다. 첫 1년은
+    기준 구간이 모자라 계산하지 않는다."""
+    if len(rows) < CREDIT_PEAK_WINDOW + 30:
+        raise RuntimeError(f"{label}: 데이터가 부족해 낙폭을 계산할 수 없습니다")
+    vals = [v for _, v in rows]
+    dd, peaks = [], []
+    for i in range(CREDIT_PEAK_WINDOW - 1, len(rows)):
+        window = vals[i - CREDIT_PEAK_WINDOW + 1:i + 1]
+        peak = max(window)
+        dd.append([rows[i][0], round((vals[i] / peak - 1) * 100, 2)])
+        peaks.append((peak, rows[i - CREDIT_PEAK_WINDOW + 1 + window.index(peak)][0]))
+    last_year = (date.fromisoformat(dd[-1][0]) - timedelta(days=365)).isoformat()
+    peak, peak_date = peaks[-1]
+    return dict(
+        dd=dd, last=vals[-1], peak=peak, peak_date=peak_date[5:].replace("-", "/"),
+        tags=[f"1년 MDD {min(v for d, v in dd if d >= last_year):.1f}%",
+              f"{CREDIT_SPEED_DAYS}일 {dd[-1][1] - dd[-1 - CREDIT_SPEED_DAYS][1]:+.1f}%p"])
 
 
 def credit_index_combo(series: dict, prev: dict, credit_key: str, index_key: str,
                        label: str) -> tuple[list[list], dict]:
     """신용융자 잔고의 낙폭(%)과 지수를 한 차트에 겹쳐 그린다.
 
-    낙폭 = 그날 잔고 / 직전 1년(250 영업일) 최고 잔고 - 1. 고점이면 0%,
-    아래로 갈수록 고점에서 많이 줄었다는 뜻이다. 첫 1년은 기준 구간이
-    모자라 그리지 않는다(그래서 3년치를 쌓아둔다).
-
     협회 발표가 영업일 1~2일 늦으므로 낙폭은 신용잔고 날짜까지만 두고,
     지수는 최신까지 그대로 붙인다. 듀얼 차트가 두 계열 날짜의 합집합을
-    x 축으로 쓰므로 길이가 달라도 된다.
+    x 축으로 쓰므로 길이가 달라도 된다. 낙폭 계산에 1년이 먼저 필요해서
+    신용잔고는 3년치를 쌓아둔다.
     """
     credit = series.get(credit_key, {}).get("data") or prev.get(credit_key, {}).get("data") or []
     index = {d: v for d, v in (series.get(index_key, {}).get("data")
                                or prev.get(index_key, {}).get("data") or [])}
-    if len(credit) < CREDIT_PEAK_WINDOW + 30 or not index:
-        raise RuntimeError(f"{label}: 데이터가 부족해 그릴 수 없습니다")
+    if not index:
+        raise RuntimeError(f"{label}: 지수 데이터가 없습니다")
+    r = _rolling_drawdown(credit, label)
+    right = [[d, v] for d, v in sorted(index.items()) if d >= r["dd"][0][0]]
+    return r["dd"], {
+        "price_data": right, "price_last_date": right[-1][0], "summary_tag": r["tags"],
+        "note": f"잔고 {r['last']:.2f}조 · 1년 고점 {r['peak']:.2f}조({r['peak_date']}) 대비 낙폭",
+    }
 
-    vals = [v for _, v in credit]
-    dd, peaks = [], []
-    for i in range(CREDIT_PEAK_WINDOW - 1, len(credit)):
-        window = vals[i - CREDIT_PEAK_WINDOW + 1:i + 1]
-        peak = max(window)
-        dd.append([credit[i][0], round((vals[i] / peak - 1) * 100, 2)])
-        peaks.append((peak, credit[i - CREDIT_PEAK_WINDOW + 1 + window.index(peak)][0]))
 
-    last_year = (date.fromisoformat(dd[-1][0]) - timedelta(days=365)).isoformat()
-    mdd = min(v for d, v in dd if d >= last_year)
-    peak, peak_date = peaks[-1]
-    speed = dd[-1][1] - dd[-1 - CREDIT_SPEED_DAYS][1]
-    right = [[d, v] for d, v in sorted(index.items()) if d >= dd[0][0]]
-    return dd, {
-        "price_data": right, "price_last_date": right[-1][0],
-        "summary_tag": [f"1년 MDD {mdd:.1f}%", f"{CREDIT_SPEED_DAYS}일 {speed:+.1f}%p"],
-        "note": f"잔고 {vals[-1]:.2f}조 · 1년 고점 {peak:.2f}조({peak_date[5:].replace('-', '/')}) 대비 낙폭",
+def index_drawdown(series: dict, prev: dict, index_key: str, label: str) -> tuple[list[list], dict]:
+    """지수의 직전 1년 고점 대비 낙폭(%). 신용잔고 낙폭 카드와 같은 계산이라
+    두 카드를 나란히 놓고 지수와 신용 중 어느 쪽이 더 털렸는지 비교할 수 있다."""
+    rows = series.get(index_key, {}).get("data") or prev.get(index_key, {}).get("data") or []
+    r = _rolling_drawdown(rows, label)
+    return r["dd"], {
+        "summary_tag": r["tags"],
+        "note": f"지수 {r['last']:,.0f} · 1년 고점 {r['peak']:,.0f}({r['peak_date']}) 대비 낙폭",
     }
 
 
@@ -1581,6 +1598,14 @@ def build_jobs(prev: dict, series: dict) -> dict:
             osc_color="var(--ink)", osc_width=2.4, fixed_period_months=12, legend_bottom=True,
             osc_ref=CREDIT_FLUSH_LINE[mkt],
             note="")   # 현재 잔고·고점은 credit_index_combo 가 채운다
+
+    for mkt, idx_name in (("kospi", "코스피"), ("kosdaq", "코스닥")):
+        jobs[f"{mkt}_drawdown"] = dict(
+            fn=(lambda m=mkt, n=idx_name: index_drawdown(series, prev, m, f"{n} 지수 낙폭")),
+            name=f"{idx_name}지수 낙폭 (1년 고점 대비)", unit="%", decimals=1, delta_unit="%p",
+            threshold=CREDIT_FLUSH_LINE[mkt], below_is="bad", osc_ref=CREDIT_FLUSH_LINE[mkt],
+            freq="daily", source="KRX / Yahoo Finance", source_url="",
+            fixed_period_months=12, note="")   # 현재 지수·고점은 index_drawdown 이 채운다
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
     jobs["kospi200_call_vol"] = dict(

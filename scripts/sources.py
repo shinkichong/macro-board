@@ -233,7 +233,8 @@ LAYOUT = [
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr",
-                                  "kospi_credit_combo", "kosdaq_credit_combo", "kr_exports_yoy"]),
+                                  "kospi_credit_combo", "kosdaq_credit_combo",
+                                  "kospi_drawdown", "kosdaq_drawdown", "kr_exports_yoy"]),
 ]
 
 # LAYOUT 에는 없지만(카드로 안 뜸) 그 그룹을 --group 으로 갱신할 때 같이 갱신해야 하는
