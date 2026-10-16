@@ -1274,8 +1274,9 @@ def kr_credit_balance(market: str, prev_data: list[list] | None = None,
 
 CREDIT_PEAK_WINDOW = 250   # 낙폭 기준 고점을 찾는 구간 (약 1년 = 250 영업일)
 # 차트 기준선 — 낙폭이 이 아래면 카드가 경고색이 된다. 코스닥은 변동이 커서 더 깊게 둔다.
-# 지수 낙폭 카드도 같은 기준선을 쓴다.
 CREDIT_FLUSH_LINE = {"kospi": -20, "kosdaq": -30}
+# 지수 낙폭 카드 기준선 — 국내는 신용잔고와 같게, 미국은 통상 약세장 기준(-20%).
+DRAWDOWN_LINE = {**CREDIT_FLUSH_LINE, "spx": -20, "ndx": -20}
 CREDIT_SPEED_DAYS = 5      # 낙폭 속도: 최근 N 영업일 동안 낙폭이 몇 %p 커졌나
 
 
@@ -1599,12 +1600,15 @@ def build_jobs(prev: dict, series: dict) -> dict:
             osc_ref=CREDIT_FLUSH_LINE[mkt],
             note="")   # 현재 잔고·고점은 credit_index_combo 가 채운다
 
-    for mkt, idx_name in (("kospi", "코스피"), ("kosdaq", "코스닥")):
+    for mkt, idx_name, src in (("spx", "S&P 500", "Yahoo Finance / Stooq"),
+                               ("ndx", "나스닥 종합", "Yahoo Finance / Stooq"),
+                               ("kospi", "코스피지수", "KRX / Yahoo Finance"),
+                               ("kosdaq", "코스닥지수", "KRX / Yahoo Finance")):
         jobs[f"{mkt}_drawdown"] = dict(
-            fn=(lambda m=mkt, n=idx_name: index_drawdown(series, prev, m, f"{n} 지수 낙폭")),
-            name=f"{idx_name}지수 낙폭 (1년 고점 대비)", unit="%", decimals=1, delta_unit="%p",
-            threshold=None, below_is=None, osc_ref=CREDIT_FLUSH_LINE[mkt],
-            freq="daily", source="KRX / Yahoo Finance", source_url="",
+            fn=(lambda m=mkt, n=idx_name: index_drawdown(series, prev, m, f"{n} 낙폭")),
+            name=f"{idx_name} 낙폭 (1년 고점 대비)", unit="%", decimals=1, delta_unit="%p",
+            threshold=None, below_is=None, osc_ref=DRAWDOWN_LINE[mkt],
+            freq="daily", source=src, source_url="",
             # 듀얼 차트 틀(월 눈금·격자·기준선)만 빌려 쓰고 지수 선은 그리지 않는다
             kind="dual", osc_legend="지수 낙폭 (%)",
             osc_color="var(--ink)", osc_width=2.4, legend_bottom=True,
