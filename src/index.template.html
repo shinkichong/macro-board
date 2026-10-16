@@ -366,6 +366,11 @@ function dualChartSVG(oscPts, pricePts, opt){
   const oscWidth = opt.oscWidth || 1.4;
   // 기준선(oscRef)이 있으면 그 값도 축 범위에 넣어 항상 보이게 한다.
   const oVals = oscPts.map(p => p[1]).concat(opt.oscRef != null ? [opt.oscRef] : []);
+  // 범례를 아래에 두는 카드는 선이 바닥에 닿아 범례와 겹치지 않게 아래로 여백을 둔다.
+  if(opt.legendBottom){
+    const lo = Math.min(...oVals), hi = Math.max(...oVals);
+    oVals.push(lo - (hi - lo) * 0.12);
+  }
   const oScale = niceScale(Math.min(...oVals), Math.max(...oVals), 7);
   const pScale = niceScale(Math.min(...pricePts.map(p => p[1])), Math.max(...pricePts.map(p => p[1])), 6);
   const oLo = oScale.lo, oHi = oScale.hi, pLo = pScale.lo, pHi = pScale.hi;
