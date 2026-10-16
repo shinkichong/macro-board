@@ -1327,9 +1327,8 @@ def index_drawdown(series: dict, prev: dict, index_key: str, label: str) -> tupl
     두 카드를 나란히 놓고 지수와 신용 중 어느 쪽이 더 털렸는지 비교할 수 있다."""
     rows = series.get(index_key, {}).get("data") or prev.get(index_key, {}).get("data") or []
     r = _rolling_drawdown(rows, label)
-    start = r["dd"][0][0]
     return r["dd"], {
-        "price_data": [[d, v] for d, v in rows if d >= start], "summary_tag": r["tags"],
+        "summary_tag": r["tags"],
         "note": f"지수 {r['last']:,.0f} · 1년 고점 {r['peak']:,.0f}({r['peak_date']}) 대비 낙폭",
     }
 
@@ -1603,11 +1602,11 @@ def build_jobs(prev: dict, series: dict) -> dict:
     for mkt, idx_name in (("kospi", "코스피"), ("kosdaq", "코스닥")):
         jobs[f"{mkt}_drawdown"] = dict(
             fn=(lambda m=mkt, n=idx_name: index_drawdown(series, prev, m, f"{n} 지수 낙폭")),
-            name=f"{idx_name}지수 낙폭 · {idx_name}지수", unit="%", decimals=1, delta_unit="%p",
+            name=f"{idx_name}지수 낙폭 (1년 고점 대비)", unit="%", decimals=1, delta_unit="%p",
             threshold=None, below_is=None, osc_ref=CREDIT_FLUSH_LINE[mkt],
             freq="daily", source="KRX / Yahoo Finance", source_url="",
-            kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
-            osc_legend="지수 낙폭 (%)", price_legend=f"{idx_name}지수",
+            # 듀얼 차트 틀(월 눈금·격자·기준선)만 빌려 쓰고 지수 선은 그리지 않는다
+            kind="dual", osc_legend="지수 낙폭 (%)",
             osc_color="var(--ink)", osc_width=2.4, legend_bottom=True,
             fixed_period_months=12, note="")   # 현재 지수·고점은 index_drawdown 이 채운다
 
