@@ -193,7 +193,21 @@ dialog.dip-dlg::backdrop{background:rgba(10,18,24,.45)}
 .dip-dlg .bands caption{caption-side:top; text-align:left; font-size:12.5px; font-weight:500; padding:0 0 4px}
 .dip-dlg .bands caption span{color:var(--ink-3); font-weight:400}
 .dip-dlg .met{color:var(--good); font-weight:600}
-@media (max-width:560px){ .dip-item .dip-name{min-width:0} }
+.dip-item, .dip-strip > *{min-width:0}
+.dip-dlg .dlg-body{overflow-x:auto}
+@media (max-width:560px){
+  dialog.dip-dlg{width:calc(100vw - 12px); max-height:calc(100vh - 16px)}
+  .dip-dlg .dlg-head{padding:10px 10px}
+  .dip-dlg .dlg-body{padding:4px 8px 14px}
+  .dip-dlg table{font-size:11.5px}
+  .dip-dlg th, .dip-dlg td{padding:4px 4px}
+  .dip-dlg td small{font-size:10.5px}
+}
+@media (max-width:560px){
+  .dip-item{flex-basis:100%; gap:8px 10px; padding:9px 12px}
+  .dip-item .dip-name{min-width:0; flex-basis:100%}
+  .dip-info{flex-basis:100%}
+}
 
 /* 매수 구간: 요약 줄을 초록으로 채우고 "매수 신호" 배지 + 은은한 깜빡임 */
 .dip-item[data-state="good"]{
