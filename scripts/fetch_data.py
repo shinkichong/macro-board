@@ -1359,7 +1359,7 @@ def index_rsi(series: dict, prev: dict, index_key: str, label: str) -> tuple[lis
             avg_l = (avg_l * (RSI_PERIOD - 1) + l) / RSI_PERIOD
         rsi = 100.0 if avg_l == 0 else 100 - 100 / (1 + avg_g / avg_l)
         out.append([rows[i][0], round(rsi, 2)])
-    out = out[-500:]   # 화면은 6개월만 쓰므로 약 2년치만 남겨 JSON 크기를 줄인다
+    out = out[-500:]   # 화면은 1년만 쓰므로 약 2년치만 남겨 JSON 크기를 줄인다
     v = out[-1][1]
     word = "과매수" if v >= 70 else "과매도" if v <= 30 else "중립"
     return out, {"price_data": [[d, x] for d, x in rows if d >= out[0][0]], "summary_tag": [word]}
@@ -1654,7 +1654,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
             freq="daily", source=f"{src} (커스텀 계산)", source_url="",
             kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
             osc_legend="RSI (14)", price_legend=f"{idx_name}지수",
-            osc_color="var(--ink)", osc_width=1.8, fixed_period_months=6,
+            osc_color="var(--ink)", osc_width=1.8, fixed_period_months=12,
             note="70 이상 과매수, 30 이하 과매도")
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
