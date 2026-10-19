@@ -1621,7 +1621,7 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
     br_days = {d for d, _ in br["data"]}
     vol_list = [vol.get(d) for d in days]
 
-    out, detail = [], None
+    out, rev_hist, detail = [], [], None
     start = (date.fromisoformat(days[-1]) - timedelta(days=400)).isoformat()
     for i, d in enumerate(days):
         if (d < start or d not in br_days or d not in vol or d not in senti or d not in credit
@@ -1650,13 +1650,15 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         )
         total = round(panic + S.DIP_REVERSAL_PTS * sum(rev.values()))
         out.append([d, total])
+        rev_hist.append([d, sum(rev.values())])
         detail = dict(mdd=mdd, vol=vol[d], rsi_d=rsi_d[i], rsi_w=rsi_w[i], senti=senti[d],
                       b200=b200[d], b50=b50[d], credit=credit[d], panic=panic, rev=rev)
     if not out:
         raise RuntimeError(f"Buy-the-Dip({market}): 계산 가능한 날짜가 없습니다")
 
     total = out[-1][1]
-    _, stage, pct = [x for x in S.DIP_STAGES if total >= x[0]][-1]
+    bounds = S.DIP_STAGE_BOUNDS[market]
+    stage, pct = [st for lo, st in zip(bounds, S.DIP_STAGES) if total >= lo][-1]
     rv = detail["rev"]
     marks = " ".join(f"{name}{'✓' if rv[key] else '·'}" for key, name in
                      (("vix_off_peak", f"{cfg['vol_name']}↓"), ("rsi_recross", "RSI30↑"),
@@ -1668,8 +1670,10 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
             f" · {credit_fmt(detail['credit'])}")
     return out, {
         "price_data": [[d, v] for d, v in px if d >= out[0][0]],
+        "reversal_data": rev_hist,   # 날짜별 충족된 반전 신호 개수(0~4)
         "summary_tag": [stage, f"누적투입 {pct:.0%}"],
-        "summary_state": "good" if total >= S.DIP_BUY_FROM else "neutral",
+        "summary_state": "good" if total >= bounds[2] else "neutral",
+        "osc_ref": [bounds[2], bounds[3]],   # 1차 매수 · 본격 분할매수 시작점
         "note": note,
     }
 
@@ -2014,7 +2018,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
         jobs[key] = dict(
             fn=(lambda m=mkt: dip_score(series, prev, m)),
             name=f"Buy-the-Dip 점수 · {label}", unit="점", decimals=0, delta_unit="점",
-            threshold=None, below_is=None, osc_ref=[S.DIP_BUY_FROM, S.DIP_BUY_FROM + 10],
+            threshold=None, below_is=None,
             osc_range=[0, 100], freq="daily", source=src_txt, source_url="",
             kind="dual", price_label=price_label, price_unit="", price_decimals=0,
             osc_legend="점수", price_legend=price_label,
