@@ -332,8 +332,9 @@ LAYOUT = [
 # 신용융자 잔고 2종도 단독 카드 대신 지수와 겹친 콤보 카드로만 보여주지만,
 # 원본은 날짜 손실 없이 따로 쌓아둔다.
 INTERNAL_GROUP_EXTRAS = {
-    # Buy-the-Dip 점수 재료: SPY·QQQ 종가, 구성종목 시장 폭(50·200일선 위 비율)
-    "미국 시장": {"spy", "qqq", "breadth_spx", "breadth_ndx"},
+    # Buy-the-Dip 점수 재료: SPY·QQQ 종가, 구성종목 시장 폭(50·200일선 위 비율), HY OAS
+    # (hy_yield 는 단독 카드가 없어 여기 넣지 않으면 '미국 시장' 정기 수집에서 갱신되지 않는다)
+    "미국 시장": {"spy", "qqq", "breadth_spx", "breadth_ndx", "hy_yield"},
     "국내 시장": {"kospi200_call_vol", "kospi200_put_vol",
                 "bond5y_futures", "bond10y_futures",
                 "kospi_credit", "kosdaq_credit",
