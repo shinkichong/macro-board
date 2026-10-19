@@ -1660,7 +1660,8 @@ def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_tabl
         stages=[[lo, name, pct] for lo, name, pct in stages],
         panic_max=sum(W.values()), reversal_max=S.DIP_REVERSAL_PTS * 4,
         gate=[[need, cap] for need, cap in gate] if gate else None,
-        vix_floor=list(S.DIP_VIX_FLOOR) if market in ("spy", "qqq") else None,
+        vix_floor=[[r["label"], r["pct"]] for r in S.DIP_VIX_FLOOR] if market in ("spy", "qqq") else None,
+        vix_now=[det["vol"], det.get("vix_ratio")] if market in ("spy", "qqq") else None,
         mdd_now=abs(det["mdd"]),
         note=("각 지표의 원점수(0~100)에 반영 비율을 곱해 더한 패닉 점수(최대 80)와 "
               "반전 신호 4개(각 5점, 최대 20)를 합산합니다. 구간은 '하한 이상'인 가장 높은 구간을 적용합니다."),
@@ -1812,12 +1813,17 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         if pct > allowed:
             _, stage, pct = [x for x in stages if total >= x[0] and x[2] <= allowed][-1]
             gated = True
-    vix_floor = False
+    vix_floor = None
     if market in ("spy", "qqq"):
-        vix_min, floor_pct = S.DIP_VIX_FLOOR
-        if detail["vol"] >= vix_min and pct < floor_pct:
-            _, stage, pct = next(x for x in stages if x[2] >= floor_pct)
-            vix_floor = True
+        vx = [v for _, v in (src("vix").get("data") or [])][-50:]
+        vix_ratio = detail["vol"] / (sum(vx) / len(vx)) if len(vx) == 50 else 0
+        detail["vix_ratio"] = vix_ratio
+        for rule in S.DIP_VIX_FLOOR:
+            if (rule["level"] and detail["vol"] >= rule["level"]) or vix_ratio >= rule["ratio"]:
+                if pct < rule["pct"]:
+                    _, stage, pct = next(x for x in stages if x[2] >= rule["pct"])
+                    vix_floor = rule
+                break
     buy_from = next(lo for lo, _, p in stages if p > 0)
     core_from = next(lo for lo, name, _ in stages if name == "본격 분할매수")
     rv = detail["rev"]
@@ -1826,7 +1832,8 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
                       ("above_10dma", "10일선"), ("breadth_up", "폭↑")))
     note = (f"패닉 {detail['panic']:.1f}/80 · 반전 {S.DIP_REVERSAL_PTS * sum(rv.values())}/20 ({marks}) — "
             f"MDD {detail['mdd']:.1%} · {cfg['vol_name']} {detail['vol']:.1f}"
-            f" · RSI 일 {detail['rsi_d']:.0f}/주 {detail['rsi_w']:.0f}"
+            + (f"(50일평균 {detail['vix_ratio']:.1f}배)" if detail.get("vix_ratio") else "")
+            + f" · RSI 일 {detail['rsi_d']:.0f}/주 {detail['rsi_w']:.0f}"
             f" · {senti_name} {detail['senti']:.0f} · 폭 200일 {detail['b200']:.0%}/50일 {detail['b50']:.0%}"
             f" · {credit_fmt(detail['credit'])}"
             + (f" · 원/달러 {detail['extra']['krw']:+.1%} · AA-스프레드 {detail['extra']['spr']:.2f}%p"
@@ -1840,7 +1847,7 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         "dip_rules": rules,          # 화면 팝업: 구간표·가중치·매수 단계
         "summary_tag": [stage, f"누적투입 {pct:.0%}"]
                        + (["MDD 조건으로 제한"] if gated else [])
-                       + ([f"VIX {S.DIP_VIX_FLOOR[0]} 이상 최소 {S.DIP_VIX_FLOOR[1]:.0%}"] if vix_floor else []),
+                       + ([f"{vix_floor['label']} → 최소 {vix_floor['pct']:.0%}"] if vix_floor else []),
         "summary_state": "good" if pct > 0 else "neutral",
         "osc_ref": [buy_from, core_from],   # 1차 매수 · 본격 분할매수 시작점
         "note": note,

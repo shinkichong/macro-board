@@ -856,9 +856,12 @@ function openDipDialog(keys, active){
           }).join("")}</tbody>
       </table>
       <p class="hint">긴 하락장의 첫 국면(2008년 7월, 2022년 1월)에 점수만 보고 70~100%를 쓰던 문제를 막기 위한 조건입니다.</p>` : ""}
-      ${r.vix_floor ? `<h3>VIX 급등 최소 투입</h3>
-      <p class="hint" style="font-size:12.5px;color:var(--ink-2)">VIX가 <b>${r.vix_floor[0]} 이상</b>이면 점수와 상관없이 누적투입률을 최소 <b>${pctTxt(r.vix_floor[1])}</b>로 올립니다.
-      2024년 8월처럼 하락폭은 작아도 공포가 급등하는 급락을 놓치지 않기 위한 규칙입니다.</p>` : ""}
+      ${r.vix_floor ? `<h3>VIX 급등 최소 투입 — 점수와 상관없이 적용</h3>
+      <table>
+        <thead><tr><th>조건</th><th class="num">최소 누적투입률</th></tr></thead>
+        <tbody>${r.vix_floor.map(([label, p]) => `<tr><td>${label}</td><td class="num">${pctTxt(p)}</td></tr>`).join("")}</tbody>
+      </table>
+      <p class="hint">${r.vix_now ? `현재 VIX ${fmt(r.vix_now[0], 1)} · 50일 평균의 ${fmt(r.vix_now[1] || 0, 2)}배. ` : ""}하락폭은 작아도 공포가 갑자기 치솟는 급락(2016 브렉시트, 2019년 8월, 2024년 8월 등)을 놓치지 않기 위한 규칙입니다.</p>` : ""}
 
       <h3>지표별 점수 구간</h3>
       <p class="hint">괄호 안은 총점 100점 중 그 지표의 반영 비율입니다.</p>
