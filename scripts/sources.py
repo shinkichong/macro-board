@@ -301,7 +301,7 @@ NDX_LIST_URL = "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
 LAYOUT = [
     dict(group="미국 시장", keys=[
         "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc",
-        "spx_drawdown", "ndx_drawdown", "ndx_rsi", "vix", "dip_spy", "dip_qqq",
+        "spx_drawdown", "ndx_drawdown", "ndx_rsi", "dip_spy", "dip_qqq", "vix",
         "ust10y", "rate_hy_combo", "yc_10y2y",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
