@@ -1580,17 +1580,16 @@ DIP_MARKETS = {
     "kospi":  dict(price="kospi", breadth="breadth_kospi", vol="vkospi", vol_table="DIP_VKOSPI",
                    vol_name="VKOSPI", sentiment="kospi_fg_osc", credit="kospi_credit"),
     "kosdaq": dict(price="kosdaq", breadth="breadth_kosdaq", vol="vkospi", vol_table="DIP_VKOSPI",
-                   vol_name="VKOSPI", sentiment="kospi_fg_osc", credit="kosdaq_credit"),
+                   vol_name="VKOSPI", sentiment="kospi_fg_osc", credit="kosdaq_credit", v2=True),
 }
 
 
 def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_table: list,
                  senti_name: str, stages: list, rsi_w_table: list, b50_table: list,
-                 gate: list | None) -> tuple[list[dict], dict]:
+                 gate: list | None, W: dict, b200_table: list, v2: dict | None) -> tuple[list[dict], dict]:
     """Buy-the-Dip 점수의 근거를 화면 팝업용으로 정리한다.
     breakdown: 현재 지표별 (현재값, 원점수 0~100, 최대 반영점수, 반영점수)
     rules: 지표별 구간표, 매수 단계표."""
-    W = S.DIP_WEIGHTS
     vol_name = cfg["vol_name"]
     credit_is_hy = cfg["credit"] == "hy"
     rs, raw = det["raw_sub"], det["raw"]
@@ -1601,7 +1600,8 @@ def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_tabl
 
     breakdown = [
         row("MDD (1년 고점 대비)", f"{det['mdd']:.1%}", raw["mdd"], W["mdd"]),
-        row(vol_name, f"{det['vol']:.1f}", raw["vix"], W["vix"]),
+        row(f"{vol_name} (직전 1년 중간값 대비)" if v2 else vol_name,
+            f"{det['vol']:.1f} ({det['vol_ratio']:.2f}배)" if v2 else f"{det['vol']:.1f}", raw["vix"], W["vix"]),
         row("RSI(14) 일 60% + 주 40%", f"일 {det['rsi_d']:.1f} / 주 {det['rsi_w']:.1f}", raw["rsi"], W["rsi"],
             sub=f"일 {rs['rsi_d']:.0f}점 · 주 {rs['rsi_w']:.0f}점"),
         row("Fear & Greed" if senti_name == "F&G" else "코스피 F&G 오실레이터 1년 순위",
@@ -1611,6 +1611,12 @@ def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_tabl
         row("HY OAS" if credit_is_hy else "신용융자 잔고 낙폭",
             f"{det['credit'] * 100:.2f}%" if credit_is_hy else f"-{det['credit']:.1%}", raw["hy"], W["hy"]),
     ]
+    if v2:
+        ex = det.get("extra", {})
+        breakdown.append(row("원/달러 (1년 평균 대비)", f"{ex['krw']:+.1%}" if "krw" in ex else "데이터 없음",
+                             raw.get("krw", 0), W["krw"]))
+        breakdown.append(row("회사채 AA- 스프레드 (국고 3년 대비)", f"{ex['spr']:.2f}%p" if "spr" in ex else "데이터 없음",
+                             raw.get("spr", 0), W["spr"]))
     rev_labels = [("vix_off_peak", f"{vol_name}가 최근 {S.DIP_VIX_PEAK_DAYS}거래일 고점 대비 15% 이상 하락"),
                   ("rsi_recross", "일봉 RSI가 30 이하에서 30 위로 재돌파"),
                   ("above_10dma", "종가가 10일 이동평균 이상"),
@@ -1634,17 +1640,21 @@ def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_tabl
     num = lambda v: f"{v:g}"
     tables = [
         dict(label="MDD (고점 대비 하락폭)", weight=W["mdd"], rows=bands(S.DIP_MDD[market], pct0)),
-        dict(label=vol_name, weight=W["vix"], rows=bands(vol_table, num)),
+        dict(label=f"{vol_name} ÷ 직전 1년 중간값 (배)" if v2 else vol_name, weight=W["vix"],
+             rows=bands(vol_table, (lambda v: f"{v:g}배") if v2 else num)),
         dict(label="일봉 RSI(14) — RSI 항목의 60%", weight=round(W["rsi"] * .6, 1), rows=bands(S.DIP_RSI_D, num)),
         dict(label="주봉 RSI(14) — RSI 항목의 40%", weight=round(W["rsi"] * .4, 1), rows=bands(rsi_w_table, num)),
         dict(label=breakdown[3]["label"], weight=W["fg"], rows=bands(S.DIP_FG, num)),
         dict(label="시장 폭 200일선 위 비율 — 시장 폭 항목의 60%", weight=round(W["breadth"] * .6, 1),
-             rows=bands(S.DIP_BREADTH, pct0)),
+             rows=bands(b200_table, pct0)),
         dict(label="시장 폭 50일선 위 비율 — 시장 폭 항목의 40%", weight=round(W["breadth"] * .4, 1),
              rows=bands(b50_table, pct0)),
         dict(label=breakdown[5]["label"], weight=W["hy"],
              rows=bands(credit_table, (lambda v: f"{v * 100:g}%") if credit_is_hy else pct0)),
     ]
+    if v2:
+        tables.append(dict(label="원/달러 (1년 평균 대비 상승률)", weight=W["krw"], rows=bands(v2["krw"], pct0)))
+        tables.append(dict(label="회사채 AA- 스프레드 (%p)", weight=W["spr"], rows=bands(v2["spread"], num)))
     rules = dict(
         tables=tables,
         stages=[[lo, name, pct] for lo, name, pct in stages],
@@ -1656,6 +1666,31 @@ def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_tabl
               "반전 신호 4개(각 5점, 최대 20)를 합산합니다. 구간은 '하한 이상'인 가장 높은 구간을 적용합니다."),
     )
     return breakdown, rules
+
+
+def kr_credit_spread(prev_data: list[list] | None = None) -> list[list]:
+    """회사채(3년, AA-) - 국고채(3년) 금리차(%p), 한국은행 ECOS 817Y002 일별.
+    처음엔 2023년부터, 이후엔 마지막 날짜 30일 전부터 받아 이어 붙인다."""
+    key = os.environ.get("ECOS_API_KEY")
+    if not key:
+        raise RuntimeError("ECOS_API_KEY 가 필요합니다.")
+    have = {d: v for d, v in (prev_data or [])}
+    start = (date.fromisoformat(max(have)) - timedelta(days=30)) if have else date(2023, 1, 1)
+    end = date.today()
+    got = {}
+    for item in ("010300000", "010200000"):
+        url = (f"https://ecos.bok.or.kr/api/StatisticSearch/{key}/json/kr/1/5000/817Y002/D/"
+               f"{start:%Y%m%d}/{end:%Y%m%d}/{item}")
+        body = get(url, timeout=15, retries=2).json()
+        rows = body.get("StatisticSearch", {}).get("row") or []
+        got[item] = {f"{r['TIME'][:4]}-{r['TIME'][4:6]}-{r['TIME'][6:]}": float(r["DATA_VALUE"])
+                     for r in rows if r.get("DATA_VALUE") not in (None, "")}
+    for d, v in got["010300000"].items():
+        if d in got["010200000"]:
+            have[d] = round(v - got["010200000"][d], 3)
+    if not have:
+        raise RuntimeError("회사채 스프레드: ECOS 응답이 비었습니다")
+    return dedupe([[d, v] for d, v in have.items()])
 
 
 def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
@@ -1691,8 +1726,29 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         credit_table, credit_fmt = S.DIP_CREDIT_DD, lambda v: f"신용잔고 -{v:.0%}"
     vol_table = getattr(S, cfg["vol_table"])
     us = market in ("spy", "qqq")
-    rsi_w_table = S.DIP_RSI_W_US if us else S.DIP_RSI_W
-    b50_table = S.DIP_BREADTH_50_US if us else S.DIP_BREADTH
+    v2 = S.DIP_KOSDAQ_V2 if cfg.get("v2") else None
+    W = v2["weights"] if v2 else S.DIP_WEIGHTS
+    rsi_w_table = S.DIP_RSI_W_US if (us or v2) else S.DIP_RSI_W
+    b50_table = S.DIP_BREADTH_50_US if (us or v2) else S.DIP_BREADTH
+    b200_table = v2["breadth_200"] if v2 else S.DIP_BREADTH
+    if v2:
+        vol_table = v2["vkospi_rel"]
+        vol_hist = src(cfg["vol"]).get("data") or []
+        krw_rows = src("usdkrw").get("data") or []
+        krw_days, krw_vals = [d for d, _ in krw_rows], [v for _, v in krw_rows]
+        spr = _ffill(src("kr_credit_spread").get("data") or [], days)
+
+        def vol_ratio(d):   # VKOSPI ÷ 직전 1년(약 250 거래일) 중간값
+            xs =[v for dd, v in vol_hist if dd <= d][-250:]
+            if len(xs) < 60:
+                return None
+            ys = sorted(xs)
+            return xs[-1] / ys[len(ys) // 2]
+
+        def krw_dev(d):     # 원/달러 ÷ 직전 1년 평균 - 1
+            lo = (date.fromisoformat(d) - timedelta(days=365)).isoformat()
+            xs = [v for dd, v in zip(krw_days, krw_vals) if lo <= dd <= d]
+            return xs[-1] / (sum(xs) / len(xs)) - 1 if len(xs) > 100 else None
     b200 = _ffill(br["data"], days)
     b50 = _ffill(br.get("pct50") or [], days)
     br_days = {d for d, _ in br["data"]}
@@ -1710,15 +1766,25 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         sma10 = sum(vals[i - 9:i + 1]) / 10
         vol_peak = max(v for v in vol_list[max(0, i - S.DIP_VIX_PEAK_DAYS + 1):i + 1] if v is not None)
         j5 = i - S.DIP_BREADTH_IMPROVE
+        vr = vol_ratio(d) if v2 else None
+        if v2 and vr is None:
+            continue
         raw = dict(
             mdd=_step(S.DIP_MDD[market], abs(mdd)),
-            vix=_step(vol_table, vol[d]),
+            vix=_step(vol_table, vr if v2 else vol[d]),
             rsi=0.6 * _step(S.DIP_RSI_D, rsi_d[i]) + 0.4 * _step(rsi_w_table, rsi_w[i]),
             fg=_step(S.DIP_FG, senti[d]),
-            breadth=0.6 * _step(S.DIP_BREADTH, b200[d]) + 0.4 * _step(b50_table, b50[d]),
+            breadth=0.6 * _step(b200_table, b200[d]) + 0.4 * _step(b50_table, b50[d]),
             hy=_step(credit_table, credit[d]),
         )
-        panic = sum(raw[k] * S.DIP_WEIGHTS[k] / 100 for k in raw)
+        extra = {}
+        if v2:   # 재료가 없는 날은 그 항목을 빼고 나머지로 80점 환산
+            kd = krw_dev(d)
+            if kd is not None:
+                raw["krw"] = _step(v2["krw"], max(0.0, kd)); extra["krw"] = kd
+            if d in spr:
+                raw["spr"] = _step(v2["spread"], spr[d]); extra["spr"] = spr[d]
+        panic = sum(raw[k] * W[k] for k in raw) / 100 * 80 / sum(W[k] for k in raw)
         rev = dict(
             vix_off_peak=vol[d] <= vol_peak * 0.85,
             rsi_recross=rsi_d[i - 1] <= 30 < rsi_d[i],
@@ -1730,8 +1796,9 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         rev_hist.append([d, sum(rev.values())])
         detail = dict(mdd=mdd, vol=vol[d], rsi_d=rsi_d[i], rsi_w=rsi_w[i], senti=senti[d],
                       b200=b200[d], b50=b50[d], credit=credit[d], panic=panic, rev=rev, raw=raw,
+                      vol_ratio=vr, extra=extra,
                       raw_sub=dict(rsi_d=_step(S.DIP_RSI_D, rsi_d[i]), rsi_w=_step(rsi_w_table, rsi_w[i]),
-                                   b200=_step(S.DIP_BREADTH, b200[d]), b50=_step(b50_table, b50[d])))
+                                   b200=_step(b200_table, b200[d]), b50=_step(b50_table, b50[d])))
     if not out:
         raise RuntimeError(f"Buy-the-Dip({market}): 계산 가능한 날짜가 없습니다")
 
@@ -1761,9 +1828,11 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
             f"MDD {detail['mdd']:.1%} · {cfg['vol_name']} {detail['vol']:.1f}"
             f" · RSI 일 {detail['rsi_d']:.0f}/주 {detail['rsi_w']:.0f}"
             f" · {senti_name} {detail['senti']:.0f} · 폭 200일 {detail['b200']:.0%}/50일 {detail['b50']:.0%}"
-            f" · {credit_fmt(detail['credit'])}")
+            f" · {credit_fmt(detail['credit'])}"
+            + (f" · 원/달러 {detail['extra']['krw']:+.1%} · AA-스프레드 {detail['extra']['spr']:.2f}%p"
+               if v2 and len(detail["extra"]) == 2 else ""))
     breakdown, rules = _dip_explain(market, cfg, detail, vol_table, credit_table, senti_name, stages,
-                                    rsi_w_table, b50_table, gate)
+                                    rsi_w_table, b50_table, gate, W, b200_table, v2)
     return out, {
         "price_data": [[d, v] for d, v in px if d >= out[0][0]],
         "reversal_data": rev_hist,   # 날짜별 충족된 반전 신호 개수(0~4)
@@ -2078,6 +2147,16 @@ def build_jobs(prev: dict, series: dict) -> dict:
                                                   prev_data=prev.get(k, {}).get("data"))[-800:]),
             name=f"{sym} 종가 (내부용)", unit="", decimals=2,
             threshold=None, below_is=None, freq="daily", source="Yahoo Finance", source_url="")
+    # 코스닥 Buy-the-Dip 보정판 재료 (내부 전용)
+    jobs["usdkrw"] = dict(
+        fn=(lambda: index_series(dict(yahoo="KRW=X", stooq="usdkrw"),
+                                 prev_data=prev.get("usdkrw", {}).get("data"))[-800:]),
+        name="원/달러 환율 (내부용)", unit="원", decimals=2,
+        threshold=None, below_is=None, freq="daily", source="Yahoo Finance", source_url="")
+    jobs["kr_credit_spread"] = dict(
+        fn=(lambda: kr_credit_spread(prev.get("kr_credit_spread", {}).get("data"))),
+        name="회사채 AA- 스프레드 (내부용)", unit="%p", decimals=2,
+        threshold=None, below_is=None, freq="daily", source="한국은행 ECOS", source_url="")
     for key, uni, label in (("breadth_spx", "spx", "S&P 500"), ("breadth_ndx", "ndx", "Nasdaq-100"),
                             ("breadth_kospi", "kospi", "코스피 시총 상위 200"),
                             ("breadth_kosdaq", "kosdaq", "코스닥 시총 상위 200")):
