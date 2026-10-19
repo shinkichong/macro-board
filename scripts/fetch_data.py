@@ -1440,9 +1440,21 @@ def _constituents(universe: str) -> list[str]:
             tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
             if tds:
                 syms.append(html.unescape(re.sub(r"<[^>]+>", "", tds[0])).strip())
-    else:
+    elif universe == "ndx":
         j = get(S.NDX_LIST_URL, headers={"User-Agent": UA, "Accept": "application/json"}).json()
         syms = [r["symbol"] for r in j["data"]["data"]["rows"]]
+    else:   # kospi / kosdaq: 네이버 시가총액 순위에서 ETF 를 뺀 상위 KR_TOP_N 종목
+        suffix = ".KS" if universe == "kospi" else ".KQ"
+        codes, page = [], 1
+        while len(codes) < S.KR_TOP_N and page <= 5:
+            j = get(S.NAVER_MARKET_VALUE_URL.format(market=universe.upper()),
+                    params={"page": page, "pageSize": 100}).json()
+            codes += [r["itemCode"] for r in j.get("stocks", []) if r.get("stockEndType") == "stock"]
+            page += 1
+        _CONSTITUENTS[universe] = sorted({c + suffix for c in codes[:S.KR_TOP_N]})
+        if len(_CONSTITUENTS[universe]) < 90:
+            raise RuntimeError(f"{universe} 종목 목록이 비정상적으로 짧습니다")
+        return _CONSTITUENTS[universe]
     syms = sorted({x.replace(".", "-") for x in syms if x})
     if len(syms) < 90:
         raise RuntimeError(f"{universe} 구성종목 목록이 비정상적으로 짧습니다 ({len(syms)}개)")
@@ -1548,76 +1560,116 @@ def _ffill(rows: list[list], days: list[str]) -> dict[str, float]:
     return out
 
 
-def dip_score(series: dict, prev: dict, etf: str, breadth_key: str) -> tuple[list[list], dict]:
-    """Buy-the-Dip 패닉 점수(0~100). data/buy_the_dip_panic_score_v1.1.xlsx 와 같은 규칙으로
-    날짜마다 계산해 최근 1년 추이를 남긴다. 엑셀에서 손으로 넣던 반전 조건 두 개
-    (VIX 고점 대비 15% 하락, Breadth 5거래일 개선)는 sources.DIP_* 기준으로 자동 판정한다."""
+def _pct_rank_series(rows: list[list], window: int = 250, min_obs: int = 60) -> list[list]:
+    """각 날짜 값이 직전 window 개 안에서 몇 번째인지 0~100 으로 (0 = 가장 낮음)."""
+    vals = [v for _, v in rows]
+    out = []
+    for i, (d, v) in enumerate(rows):
+        w = vals[max(0, i - window + 1):i + 1]
+        if len(w) >= min_obs:
+            out.append([d, 100 * sum(x < v for x in w) / (len(w) - 1 or 1)])
+    return out
+
+
+DIP_MARKETS = {
+    # key: (가격 계열, 시장 폭, 변동성 계열·구간, 심리 계열(가공), 신용 재료, MDD 구간 키)
+    "spy":    dict(price="spy", breadth="breadth_spx", vol="vix", vol_table="DIP_VIX", vol_name="VIX",
+                   sentiment="fear_greed", credit="hy"),
+    "qqq":    dict(price="qqq", breadth="breadth_ndx", vol="vix", vol_table="DIP_VIX", vol_name="VIX",
+                   sentiment="fear_greed", credit="hy"),
+    "kospi":  dict(price="kospi", breadth="breadth_kospi", vol="vkospi", vol_table="DIP_VKOSPI",
+                   vol_name="VKOSPI", sentiment="kospi_fg_osc", credit="kospi_credit"),
+    "kosdaq": dict(price="kosdaq", breadth="breadth_kosdaq", vol="vkospi", vol_table="DIP_VKOSPI",
+                   vol_name="VKOSPI", sentiment="kospi_fg_osc", credit="kosdaq_credit"),
+}
+
+
+def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
+    """Buy-the-Dip 패닉 점수(0~100). data/buy_the_dip_panic_score_v1.1.xlsx 와 같은 틀
+    (패닉 80 + 반전 20)로 날짜마다 계산해 최근 1년 추이를 남긴다. 엑셀에서 손으로 넣던
+    반전 조건 두 개(변동성 고점 대비 15% 하락, 시장 폭 5거래일 개선)도 자동 판정한다.
+    국내판은 sources.DIP_MARKETS 대로 VKOSPI·코스피 F&G 순위·신용잔고 낙폭을 쓴다."""
+    cfg = DIP_MARKETS[market]
+
     def src(k):
         return series.get(k) or prev.get(k) or {}
-    px = src(etf).get("data") or []
-    br = src(breadth_key)
+    px = src(cfg["price"]).get("data") or []
+    br = src(cfg["breadth"])
     if len(px) < 300 or not br.get("data"):
-        raise RuntimeError(f"Buy-the-Dip({etf}): 재료 데이터가 부족합니다")
+        raise RuntimeError(f"Buy-the-Dip({market}): 재료 데이터가 부족합니다")
+    px = px[-800:]
     days = [d for d, _ in px]
     vals = [v for _, v in px]
     rsi_d = _wilder_rsi(vals)
     rsi_w = _weekly_rsi_asof(px)
-    vix = _ffill(src("vix").get("data") or [], days)
-    fg = _ffill(src("fear_greed").get("data") or [], days)
-    hy = _ffill(src("hy_yield").get("data") or [], days)
+    vol = _ffill(src(cfg["vol"]).get("data") or [], days)
+    if cfg["sentiment"] == "fear_greed":
+        senti_rows, senti_name = src("fear_greed").get("data") or [], "F&G"
+    else:
+        senti_rows, senti_name = _pct_rank_series(src(cfg["sentiment"]).get("data") or []), "F&G순위"
+    senti = _ffill(senti_rows, days)
+    if cfg["credit"] == "hy":
+        credit = {d: v / 100 for d, v in _ffill(src("hy_yield").get("data") or [], days).items()}
+        credit_table, credit_fmt = S.DIP_HY, lambda v: f"HY {v * 100:.2f}%"
+    else:
+        cdd = _rolling_drawdown(src(cfg["credit"]).get("data") or [], cfg["credit"])["dd"]
+        credit = {d: abs(v) / 100 for d, v in _ffill(cdd, days).items()}
+        credit_table, credit_fmt = S.DIP_CREDIT_DD, lambda v: f"신용잔고 -{v:.0%}"
+    vol_table = getattr(S, cfg["vol_table"])
     b200 = _ffill(br["data"], days)
     b50 = _ffill(br.get("pct50") or [], days)
     br_days = {d for d, _ in br["data"]}
-    vix_list = [vix.get(d) for d in days]
+    vol_list = [vol.get(d) for d in days]
 
     out, detail = [], None
     start = (date.fromisoformat(days[-1]) - timedelta(days=400)).isoformat()
     for i, d in enumerate(days):
-        if (d < start or d not in br_days or d not in vix or d not in fg or d not in hy
+        if (d < start or d not in br_days or d not in vol or d not in senti or d not in credit
                 or i < 10 or rsi_d[i - 1] is None or rsi_w[i] is None):
             continue
         lo_day = (date.fromisoformat(d) - timedelta(days=365)).isoformat()
         peak = max(v for dd, v in zip(days[:i + 1], vals[:i + 1]) if dd >= lo_day)
         mdd = vals[i] / peak - 1
         sma10 = sum(vals[i - 9:i + 1]) / 10
-        vix_peak = max(v for v in vix_list[max(0, i - S.DIP_VIX_PEAK_DAYS + 1):i + 1] if v is not None)
+        vol_peak = max(v for v in vol_list[max(0, i - S.DIP_VIX_PEAK_DAYS + 1):i + 1] if v is not None)
         j5 = i - S.DIP_BREADTH_IMPROVE
         raw = dict(
-            mdd=_step(S.DIP_MDD[etf], abs(mdd)),
-            vix=_step(S.DIP_VIX, vix[d]),
+            mdd=_step(S.DIP_MDD[market], abs(mdd)),
+            vix=_step(vol_table, vol[d]),
             rsi=0.6 * _step(S.DIP_RSI_D, rsi_d[i]) + 0.4 * _step(S.DIP_RSI_W, rsi_w[i]),
-            fg=_step(S.DIP_FG, fg[d]),
+            fg=_step(S.DIP_FG, senti[d]),
             breadth=0.6 * _step(S.DIP_BREADTH, b200[d]) + 0.4 * _step(S.DIP_BREADTH, b50[d]),
-            hy=_step(S.DIP_HY, hy[d] / 100),
+            hy=_step(credit_table, credit[d]),
         )
         panic = sum(raw[k] * S.DIP_WEIGHTS[k] / 100 for k in raw)
         rev = dict(
-            vix_off_peak=vix[d] <= vix_peak * 0.85,
+            vix_off_peak=vol[d] <= vol_peak * 0.85,
             rsi_recross=rsi_d[i - 1] <= 30 < rsi_d[i],
             above_10dma=vals[i] >= sma10,
             breadth_up=j5 >= 0 and days[j5] in b50 and b50[d] > b50[days[j5]],
         )
         total = round(panic + S.DIP_REVERSAL_PTS * sum(rev.values()))
         out.append([d, total])
-        detail = dict(mdd=mdd, vix=vix[d], rsi_d=rsi_d[i], rsi_w=rsi_w[i], fg=fg[d],
-                      b200=b200[d], b50=b50[d], hy=hy[d], panic=panic, rev=rev)
+        detail = dict(mdd=mdd, vol=vol[d], rsi_d=rsi_d[i], rsi_w=rsi_w[i], senti=senti[d],
+                      b200=b200[d], b50=b50[d], credit=credit[d], panic=panic, rev=rev)
     if not out:
-        raise RuntimeError(f"Buy-the-Dip({etf}): 계산 가능한 날짜가 없습니다")
+        raise RuntimeError(f"Buy-the-Dip({market}): 계산 가능한 날짜가 없습니다")
 
     total = out[-1][1]
     _, stage, pct = [x for x in S.DIP_STAGES if total >= x[0]][-1]
     rv = detail["rev"]
     marks = " ".join(f"{name}{'✓' if rv[key] else '·'}" for key, name in
-                     (("vix_off_peak", "VIX↓"), ("rsi_recross", "RSI30↑"),
+                     (("vix_off_peak", f"{cfg['vol_name']}↓"), ("rsi_recross", "RSI30↑"),
                       ("above_10dma", "10일선"), ("breadth_up", "폭↑")))
     note = (f"패닉 {detail['panic']:.1f}/80 · 반전 {S.DIP_REVERSAL_PTS * sum(rv.values())}/20 ({marks}) — "
-            f"MDD {detail['mdd']:.1%} · VIX {detail['vix']:.1f} · RSI 일 {detail['rsi_d']:.0f}/주 {detail['rsi_w']:.0f}"
-            f" · F&G {detail['fg']:.0f} · 폭 200일 {detail['b200']:.0%}/50일 {detail['b50']:.0%}"
-            f" · HY {detail['hy']:.2f}%")
+            f"MDD {detail['mdd']:.1%} · {cfg['vol_name']} {detail['vol']:.1f}"
+            f" · RSI 일 {detail['rsi_d']:.0f}/주 {detail['rsi_w']:.0f}"
+            f" · {senti_name} {detail['senti']:.0f} · 폭 200일 {detail['b200']:.0%}/50일 {detail['b50']:.0%}"
+            f" · {credit_fmt(detail['credit'])}")
     return out, {
         "price_data": [[d, v] for d, v in px if d >= out[0][0]],
         "summary_tag": [stage, f"누적투입 {pct:.0%}"],
-        "summary_state": "good" if total >= 50 else "neutral",
+        "summary_state": "good" if total >= S.DIP_BUY_FROM else "neutral",
         "note": note,
     }
 
@@ -1922,23 +1974,14 @@ def build_jobs(prev: dict, series: dict) -> dict:
                                                   prev_data=prev.get(k, {}).get("data"))[-800:]),
             name=f"{sym} 종가 (내부용)", unit="", decimals=2,
             threshold=None, below_is=None, freq="daily", source="Yahoo Finance", source_url="")
-    for key, uni, label in (("breadth_spx", "spx", "S&P 500"), ("breadth_ndx", "ndx", "Nasdaq-100")):
+    for key, uni, label in (("breadth_spx", "spx", "S&P 500"), ("breadth_ndx", "ndx", "Nasdaq-100"),
+                            ("breadth_kospi", "kospi", "코스피 시총 상위 200"),
+                            ("breadth_kosdaq", "kosdaq", "코스닥 시총 상위 200")):
         jobs[key] = dict(
             fn=(lambda k=key, u=uni: market_breadth(u, prev.get(k))),
             name=f"{label} 200일선 위 종목 비율 (내부용)", unit="", decimals=3,
             threshold=None, below_is=None, freq="daily",
             source="Yahoo Finance (구성종목 계산)", source_url="")
-    for key, etf, bkey, label in (("dip_spy", "spy", "breadth_spx", "S&P 500 (SPY)"),
-                                  ("dip_qqq", "qqq", "breadth_ndx", "Nasdaq-100 (QQQ)")):
-        jobs[key] = dict(
-            fn=(lambda e=etf, b=bkey: dip_score(series, prev, e, b)),
-            name=f"Buy-the-Dip 점수 · {label}", unit="점", decimals=0, delta_unit="점",
-            threshold=None, below_is=None, osc_ref=[50, 60], osc_range=[0, 100],
-            freq="daily", source="Yahoo · CBOE · CNN · FRED (커스텀 계산)", source_url="",
-            kind="dual", price_label=etf.upper(), price_unit="", price_decimals=0,
-            osc_legend="점수", price_legend=etf.upper(),
-            osc_color="var(--ink)", osc_width=2.0, fixed_period_months=12,
-            note="")   # 세부 지표는 dip_score 가 채운다
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
     jobs["kospi200_call_vol"] = dict(
@@ -1960,6 +2003,23 @@ def build_jobs(prev: dict, series: dict) -> dict:
         kind="dual", price_label="KOSPI", price_unit="", price_decimals=0,
         osc_legend="Fear & Greed Oscillator (KOSPI)", price_legend="KOSPI Index",
         fixed_period_months=6)
+
+    # Buy-the-Dip 점수 — 재료(지수·VKOSPI·F&G·신용잔고·시장 폭)가 모두 갱신된 뒤에 계산
+    for key, mkt, label, src_txt in (
+            ("dip_spy", "spy", "S&P 500 (SPY)", "Yahoo · CBOE · CNN · FRED (커스텀 계산)"),
+            ("dip_qqq", "qqq", "Nasdaq-100 (QQQ)", "Yahoo · CBOE · CNN · FRED (커스텀 계산)"),
+            ("dip_kospi", "kospi", "코스피", "KRX · 금융투자협회 · 네이버 · Yahoo (커스텀 계산)"),
+            ("dip_kosdaq", "kosdaq", "코스닥", "KRX · 금융투자협회 · 네이버 · Yahoo (커스텀 계산)")):
+        price_label = mkt.upper() if mkt in ("spy", "qqq") else label
+        jobs[key] = dict(
+            fn=(lambda m=mkt: dip_score(series, prev, m)),
+            name=f"Buy-the-Dip 점수 · {label}", unit="점", decimals=0, delta_unit="점",
+            threshold=None, below_is=None, osc_ref=[S.DIP_BUY_FROM, S.DIP_BUY_FROM + 10],
+            osc_range=[0, 100], freq="daily", source=src_txt, source_url="",
+            kind="dual", price_label=price_label, price_unit="", price_decimals=0,
+            osc_legend="점수", price_legend=price_label,
+            osc_color="var(--ink)", osc_width=2.0, fixed_period_months=12,
+            note="")   # 세부 지표는 dip_score 가 채운다
 
     return jobs
 

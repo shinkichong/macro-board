@@ -86,6 +86,7 @@ data/macro.json           수집된 시계열
 | 코스피 | KRX 공식 오픈API + Yahoo Finance → Stooq 보완 | 인증키 선택. 아래 설명 참고 |
 | 코스닥 | Yahoo Finance → Stooq | |
 | VKOSPI | KRX 공식 오픈API + 정보데이터시스템 | 인증키 선택. 아래 설명 참고 |
+| Buy-the-Dip 점수 (코스피·코스닥) | KRX · VKOSPI · 금융투자협회 신용잔고 · 네이버 시총 순위 · Yahoo | 미국판과 같은 틀. VIX→VKOSPI, F&G→코스피 F&G 오실레이터 1년 순위, HY OAS→신용잔고 낙폭, 시장 폭은 시총 상위 200종목 |
 | Buy-the-Dip 점수 (SPY·QQQ) | Yahoo(SPY·QQQ·구성종목 spark) · CBOE VIX · CNN F&G · FRED HY OAS | `data/buy_the_dip_panic_score_v1.1.xlsx` 와 같은 규칙. 시장 폭은 S&P 500(위키백과)·Nasdaq-100(nasdaq.com) 구성종목으로 직접 계산 |
 | 코스피·코스닥 신용융자 잔고 | 금융투자협회 FreeSIS 신용공여 잔고추이 | 키 없음(화면 내부 엔드포인트). 첫 수집에 3년치 적재 후 마지막 날짜 7일 전부터 다시 받아 이어 붙임. 발표가 영업일 1~2일 늦음 |
 | 한국 수출증가율 (YoY) | 관세청 통관 수출액 ECOS `901Y118` + 산업통상부 수출입동향 속보 | 아래 설명 참고 |

@@ -242,14 +242,26 @@ DIP_BREADTH = [(0, 100), (.1, 90), (.2, 80), (.3, 60), (.4, 40), (.5, 25), (.6, 
 DIP_HY = [(0, 0), (.03, 15), (.04, 30), (.05, 45), (.06, 65), (.08, 85), (.10, 100)]
 DIP_WEIGHTS = dict(mdd=30, vix=12, rsi=10, fg=6, breadth=13, hy=9)   # 합 80
 DIP_REVERSAL_PTS = 5                                                 # 4개 × 5 = 20
-DIP_STAGES = [   # (하한, 매수 단계, 누적투입률)
-    (0, "대기", 0), (40, "현금 유지·점검", 0), (50, "1차 소액 매수", .05),
-    (60, "본격 분할매수", .15), (70, "매수 비중 확대", .30), (80, "강한 매수", .50),
-    (90, "대규모 분할매수", .75), (95, "현금 대부분 투입", .90), (100, "남은 자금 마무리", 1.0),
+DIP_STAGES = [   # (하한, 매수 단계, 누적투입률) — 엑셀 원안보다 20점 낮춰 30점부터 1차 매수
+    (0, "대기", 0), (20, "현금 유지·점검", 0), (30, "1차 소액 매수", .05),
+    (40, "본격 분할매수", .15), (50, "매수 비중 확대", .30), (60, "강한 매수", .50),
+    (70, "대규모 분할매수", .75), (80, "현금 대부분 투입", .90), (90, "남은 자금 마무리", 1.0),
 ]
+DIP_BUY_FROM = 30   # 이 점수 이상이면 카드 테두리를 매수 구간 색으로
 # 엑셀이 정하지 않은 반전 조건의 세부 기준
 DIP_VIX_PEAK_DAYS = 20      # "VIX 고점" = 최근 20 거래일 최고치
 DIP_BREADTH_IMPROVE = 5     # "Breadth 5거래일 개선" = 50일선 위 비율이 5거래일 전보다 높음
+# 국내판 (코스피·코스닥). 미국판과 같은 틀·가중치에 재료만 바꾼다.
+#   VIX → VKOSPI (올해 평소 수준이 높아 구간을 위로 올림)
+#   Fear & Greed → 코스피 F&G 오실레이터의 최근 1년 순위(0 = 1년 중 가장 공포)
+#   HY OAS → 신용융자 잔고 낙폭(1년 고점 대비) — 반대매매로 레버리지가 털렸는지
+#   시장 폭 → 시가총액 상위 200종목(네이버) 중 50·200일선 위 비율
+DIP_MDD["kospi"] = [(0, 0), (.07, 15), (.12, 30), (.18, 50), (.25, 65), (.32, 80), (.40, 90), (.50, 100)]
+DIP_MDD["kosdaq"] = [(0, 0), (.10, 15), (.16, 30), (.22, 50), (.30, 65), (.38, 80), (.46, 90), (.55, 100)]
+DIP_VKOSPI = [(0, 0), (20, 10), (25, 25), (30, 40), (35, 55), (40, 70), (50, 85), (65, 95), (80, 100)]
+DIP_CREDIT_DD = [(0, 0), (.05, 15), (.10, 30), (.15, 45), (.20, 65), (.30, 85), (.40, 100)]
+KR_TOP_N = 200
+NAVER_MARKET_VALUE_URL = "https://m.stock.naver.com/api/stocks/marketValue/{market}"
 SP500_LIST_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 NDX_LIST_URL = "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
 
@@ -263,7 +275,7 @@ LAYOUT = [
         "ust10y", "rate_hy_combo", "yc_10y2y",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
-    dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr",
+    dict(group="국내 시장", keys=["dip_kospi", "dip_kosdaq", "kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr",
                                   "kospi_drawdown", "kosdaq_drawdown", "kospi_rsi",
                                   "kospi_credit_combo", "kosdaq_credit_combo", "kr_exports_yoy"]),
 ]
@@ -278,7 +290,8 @@ INTERNAL_GROUP_EXTRAS = {
     "미국 시장": {"spy", "qqq", "breadth_spx", "breadth_ndx"},
     "국내 시장": {"kospi200_call_vol", "kospi200_put_vol",
                 "bond5y_futures", "bond10y_futures",
-                "kospi_credit", "kosdaq_credit"},
+                "kospi_credit", "kosdaq_credit",
+                "breadth_kospi", "breadth_kosdaq"},
 }
 
 # ─────────────────────────────────────────────────────────────
