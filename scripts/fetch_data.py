@@ -1657,8 +1657,10 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         raise RuntimeError(f"Buy-the-Dip({market}): 계산 가능한 날짜가 없습니다")
 
     total = out[-1][1]
-    bounds = S.DIP_STAGE_BOUNDS[market]
-    stage, pct = [st for lo, st in zip(bounds, S.DIP_STAGES) if total >= lo][-1]
+    stages = S.DIP_STAGES[market]
+    _, stage, pct = [x for x in stages if total >= x[0]][-1]
+    buy_from = next(lo for lo, _, p in stages if p > 0)
+    core_from = next(lo for lo, name, _ in stages if name == "본격 분할매수")
     rv = detail["rev"]
     marks = " ".join(f"{name}{'✓' if rv[key] else '·'}" for key, name in
                      (("vix_off_peak", f"{cfg['vol_name']}↓"), ("rsi_recross", "RSI30↑"),
@@ -1672,8 +1674,8 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         "price_data": [[d, v] for d, v in px if d >= out[0][0]],
         "reversal_data": rev_hist,   # 날짜별 충족된 반전 신호 개수(0~4)
         "summary_tag": [stage, f"누적투입 {pct:.0%}"],
-        "summary_state": "good" if total >= bounds[2] else "neutral",
-        "osc_ref": [bounds[2], bounds[3]],   # 1차 매수 · 본격 분할매수 시작점
+        "summary_state": "good" if total >= buy_from else "neutral",
+        "osc_ref": [buy_from, core_from],   # 1차 매수 · 본격 분할매수 시작점
         "note": note,
     }
 
