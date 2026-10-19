@@ -1334,6 +1334,37 @@ def index_drawdown(series: dict, prev: dict, index_key: str, label: str) -> tupl
     }
 
 
+RSI_PERIOD = 14   # 증권사 HTS 기본값과 같은 14일 Wilder RSI
+
+
+def index_rsi(series: dict, prev: dict, index_key: str, label: str) -> tuple[list[list], dict]:
+    """지수 종가의 14일 RSI(Wilder 평활)와 지수를 한 차트에 겹쳐 그린다.
+    70 이상 과매수, 30 이하 과매도로 본다. (F&G 오실레이터의 _rsi10 은
+    원본 스크립트를 따른 단순평균 방식이라 HTS 값과 달라 따로 계산한다.)"""
+    rows = series.get(index_key, {}).get("data") or prev.get(index_key, {}).get("data") or []
+    if len(rows) < RSI_PERIOD * 10:
+        raise RuntimeError(f"{label}: 데이터가 부족해 RSI를 계산할 수 없습니다")
+    avg_g = avg_l = 0.0
+    out = []
+    for i in range(1, len(rows)):
+        d = rows[i][1] - rows[i - 1][1]
+        g, l = max(d, 0.0), max(-d, 0.0)
+        if i <= RSI_PERIOD:
+            avg_g += g / RSI_PERIOD
+            avg_l += l / RSI_PERIOD
+            if i < RSI_PERIOD:
+                continue
+        else:
+            avg_g = (avg_g * (RSI_PERIOD - 1) + g) / RSI_PERIOD
+            avg_l = (avg_l * (RSI_PERIOD - 1) + l) / RSI_PERIOD
+        rsi = 100.0 if avg_l == 0 else 100 - 100 / (1 + avg_g / avg_l)
+        out.append([rows[i][0], round(rsi, 2)])
+    out = out[-500:]   # 화면은 6개월만 쓰므로 약 2년치만 남겨 JSON 크기를 줄인다
+    v = out[-1][1]
+    word = "과매수" if v >= 70 else "과매도" if v <= 30 else "중립"
+    return out, {"price_data": [[d, x] for d, x in rows if d >= out[0][0]], "summary_tag": [word]}
+
+
 def dedupe(rows: list[list]) -> list[list]:
     """날짜 오름차순 정렬 + 중복 날짜 제거."""
     seen, out = set(), []
@@ -1613,6 +1644,18 @@ def build_jobs(prev: dict, series: dict) -> dict:
             kind="dual", osc_legend="지수 낙폭 (%)",
             osc_color="var(--ink)", osc_width=2.4, legend_bottom=True,
             fixed_period_months=12, note="")   # 현재 지수·고점은 index_drawdown 이 채운다
+
+    for mkt, idx_name, src in (("ndx", "나스닥", "Yahoo Finance / Stooq"),
+                               ("kospi", "코스피", "KRX / Yahoo Finance")):
+        jobs[f"{mkt}_rsi"] = dict(
+            fn=(lambda m=mkt, n=idx_name: index_rsi(series, prev, m, f"{n} RSI")),
+            name=f"{idx_name} RSI (14일) · {idx_name}지수", unit="", decimals=1, delta_unit="p",
+            threshold=None, below_is=None, osc_ref=[30, 70], osc_range=[0, 100],
+            freq="daily", source=f"{src} (커스텀 계산)", source_url="",
+            kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
+            osc_legend="RSI (14)", price_legend=f"{idx_name}지수",
+            osc_color="var(--ink)", osc_width=1.8, fixed_period_months=6,
+            note="70 이상 과매수, 30 이하 과매도")
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
     jobs["kospi200_call_vol"] = dict(

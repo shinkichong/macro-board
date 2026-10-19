@@ -365,7 +365,9 @@ function dualChartSVG(oscPts, pricePts, opt){
   const oscColor = opt.oscColor || OSC_COLOR, priceColor = opt.priceColor || PRICE_COLOR;
   const oscWidth = opt.oscWidth || 1.4;
   // 기준선(oscRef)이 있으면 그 값도 축 범위에 넣어 항상 보이게 한다.
-  const oVals = oscPts.map(p => p[1]).concat(opt.oscRef != null ? [opt.oscRef] : []);
+  // oscRef 는 값 하나 또는 여러 개(예: RSI 30/70). oscRange 를 주면 축을 그 범위로 고정한다.
+  const refs = opt.oscRef == null ? [] : [].concat(opt.oscRef);
+  const oVals = opt.oscRange ? [...opt.oscRange] : oscPts.map(p => p[1]).concat(refs);
   // 범례를 아래에 두는 카드는 선이 바닥에 닿아 범례와 겹치지 않게 아래로 여백을 둔다.
   if(opt.legendBottom){
     const lo = Math.min(...oVals), hi = Math.max(...oVals);
@@ -419,13 +421,13 @@ function dualChartSVG(oscPts, pricePts, opt){
   }).join("");
 
   /* matplotlib 처럼 범례를 플롯 박스 안쪽 모서리에, 배경 박스와 함께 그린다. */
-  const refLine = opt.oscRef == null ? "" : (() => {
-    const yy = yO(opt.oscRef).toFixed(1);
+  const refLine = refs.map(ref => {
+    const yy = yO(ref).toFixed(1);
     return `<line x1="${VB2.l}" x2="${VB2.w - VB2.r}" y1="${yy}" y2="${yy}"
                   stroke="var(--bad)" stroke-width="1" stroke-dasharray="4 3"/>
             <text x="${VB2.l + 4}" y="${(+yy - 3).toFixed(1)}" font-size="7.5"
-                  fill="var(--bad)">${fmt(opt.oscRef, opt.decimals)}</text>`;
-  })();
+                  fill="var(--bad)">${fmt(ref, opt.decimals)}</text>`;
+  }).join("");
 
   // 위쪽 모서리에 선이 붙어 다니는 계열(예: 낙폭 0%)은 legendBottom 으로 아래 모서리에 둔다.
   const ly = opt.legendBottom ? VB2.h - VB2.b - 15 : VB2.t + 3;
@@ -477,7 +479,7 @@ function card(key, s){
   // summary_tag 가 있는 카드(예: 신용잔고 낙폭)는 기준선·200일선 판정 대신 그 문구(들)를 쓴다.
   // 그때 카드 색은 osc_ref(기준선) 아래로 내려갔을 때만 경고색으로 바꾼다.
   const {state, word} = s.summary_tag
-    ? {state: s.osc_ref != null && full[full.length - 1][1] <= s.osc_ref ? "bad" : "neutral",
+    ? {state: s.osc_ref != null && full[full.length - 1][1] <= Math.min(...[].concat(s.osc_ref)) ? "bad" : "neutral",
        word: s.summary_tag}
     : judge(s, full);
   const [lastDate, lastVal] = full[full.length - 1];
@@ -510,7 +512,7 @@ function card(key, s){
     ? dualChartSVG(pts, pricePts, {decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name,
         oscLegend: s.osc_legend, priceLegend: s.price_legend,
         oscColor: s.osc_color, priceColor: s.price_color, oscWidth: s.osc_width,
-        legendBottom: s.legend_bottom, oscRef: s.osc_ref})
+        legendBottom: s.legend_bottom, oscRef: s.osc_ref, oscRange: s.osc_range})
     : chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,
                      decimals:s.decimals, label:s.name,
                      ma: isPrice ? movingAverage(full, pts, 200) : null});

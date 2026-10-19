@@ -229,12 +229,12 @@ ISM_REF_URL = "https://kr.investing.com/economic-calendar/ism-manufacturing-pmi-
 LAYOUT = [
     dict(group="미국 시장", keys=[
         "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc",
-        "spx_drawdown", "ndx_drawdown", "vix",
+        "spx_drawdown", "ndx_drawdown", "ndx_rsi", "vix",
         "ust10y", "rate_hy_combo", "yc_10y2y",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "vkospi", "kospi200_pcr",
-                                  "kospi_drawdown", "kosdaq_drawdown",
+                                  "kospi_drawdown", "kosdaq_drawdown", "kospi_rsi",
                                   "kospi_credit_combo", "kosdaq_credit_combo", "kr_exports_yoy"]),
 ]
 
