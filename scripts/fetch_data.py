@@ -1585,7 +1585,8 @@ DIP_MARKETS = {
 
 
 def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_table: list,
-                 senti_name: str, stages: list) -> tuple[list[dict], dict]:
+                 senti_name: str, stages: list, rsi_w_table: list, b50_table: list,
+                 gate: list | None) -> tuple[list[dict], dict]:
     """Buy-the-Dip 점수의 근거를 화면 팝업용으로 정리한다.
     breakdown: 현재 지표별 (현재값, 원점수 0~100, 최대 반영점수, 반영점수)
     rules: 지표별 구간표, 매수 단계표."""
@@ -1635,10 +1636,12 @@ def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_tabl
         dict(label="MDD (고점 대비 하락폭)", weight=W["mdd"], rows=bands(S.DIP_MDD[market], pct0)),
         dict(label=vol_name, weight=W["vix"], rows=bands(vol_table, num)),
         dict(label="일봉 RSI(14) — RSI 항목의 60%", weight=round(W["rsi"] * .6, 1), rows=bands(S.DIP_RSI_D, num)),
-        dict(label="주봉 RSI(14) — RSI 항목의 40%", weight=round(W["rsi"] * .4, 1), rows=bands(S.DIP_RSI_W, num)),
+        dict(label="주봉 RSI(14) — RSI 항목의 40%", weight=round(W["rsi"] * .4, 1), rows=bands(rsi_w_table, num)),
         dict(label=breakdown[3]["label"], weight=W["fg"], rows=bands(S.DIP_FG, num)),
-        dict(label="시장 폭 (50·200일선 위 종목 비율) — 200일 60% · 50일 40%", weight=W["breadth"],
+        dict(label="시장 폭 200일선 위 비율 — 시장 폭 항목의 60%", weight=round(W["breadth"] * .6, 1),
              rows=bands(S.DIP_BREADTH, pct0)),
+        dict(label="시장 폭 50일선 위 비율 — 시장 폭 항목의 40%", weight=round(W["breadth"] * .4, 1),
+             rows=bands(b50_table, pct0)),
         dict(label=breakdown[5]["label"], weight=W["hy"],
              rows=bands(credit_table, (lambda v: f"{v * 100:g}%") if credit_is_hy else pct0)),
     ]
@@ -1646,6 +1649,8 @@ def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_tabl
         tables=tables,
         stages=[[lo, name, pct] for lo, name, pct in stages],
         panic_max=sum(W.values()), reversal_max=S.DIP_REVERSAL_PTS * 4,
+        gate=[[need, cap] for need, cap in gate] if gate else None,
+        mdd_now=abs(det["mdd"]),
         note=("각 지표의 원점수(0~100)에 반영 비율을 곱해 더한 패닉 점수(최대 80)와 "
               "반전 신호 4개(각 5점, 최대 20)를 합산합니다. 구간은 '하한 이상'인 가장 높은 구간을 적용합니다."),
     )
@@ -1684,6 +1689,9 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         credit = {d: abs(v) / 100 for d, v in _ffill(cdd, days).items()}
         credit_table, credit_fmt = S.DIP_CREDIT_DD, lambda v: f"신용잔고 -{v:.0%}"
     vol_table = getattr(S, cfg["vol_table"])
+    us = market in ("spy", "qqq")
+    rsi_w_table = S.DIP_RSI_W_US if us else S.DIP_RSI_W
+    b50_table = S.DIP_BREADTH_50_US if us else S.DIP_BREADTH
     b200 = _ffill(br["data"], days)
     b50 = _ffill(br.get("pct50") or [], days)
     br_days = {d for d, _ in br["data"]}
@@ -1704,9 +1712,9 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         raw = dict(
             mdd=_step(S.DIP_MDD[market], abs(mdd)),
             vix=_step(vol_table, vol[d]),
-            rsi=0.6 * _step(S.DIP_RSI_D, rsi_d[i]) + 0.4 * _step(S.DIP_RSI_W, rsi_w[i]),
+            rsi=0.6 * _step(S.DIP_RSI_D, rsi_d[i]) + 0.4 * _step(rsi_w_table, rsi_w[i]),
             fg=_step(S.DIP_FG, senti[d]),
-            breadth=0.6 * _step(S.DIP_BREADTH, b200[d]) + 0.4 * _step(S.DIP_BREADTH, b50[d]),
+            breadth=0.6 * _step(S.DIP_BREADTH, b200[d]) + 0.4 * _step(b50_table, b50[d]),
             hy=_step(credit_table, credit[d]),
         )
         panic = sum(raw[k] * S.DIP_WEIGHTS[k] / 100 for k in raw)
@@ -1721,14 +1729,21 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         rev_hist.append([d, sum(rev.values())])
         detail = dict(mdd=mdd, vol=vol[d], rsi_d=rsi_d[i], rsi_w=rsi_w[i], senti=senti[d],
                       b200=b200[d], b50=b50[d], credit=credit[d], panic=panic, rev=rev, raw=raw,
-                      raw_sub=dict(rsi_d=_step(S.DIP_RSI_D, rsi_d[i]), rsi_w=_step(S.DIP_RSI_W, rsi_w[i]),
-                                   b200=_step(S.DIP_BREADTH, b200[d]), b50=_step(S.DIP_BREADTH, b50[d])))
+                      raw_sub=dict(rsi_d=_step(S.DIP_RSI_D, rsi_d[i]), rsi_w=_step(rsi_w_table, rsi_w[i]),
+                                   b200=_step(S.DIP_BREADTH, b200[d]), b50=_step(b50_table, b50[d])))
     if not out:
         raise RuntimeError(f"Buy-the-Dip({market}): 계산 가능한 날짜가 없습니다")
 
     total = out[-1][1]
     stages = S.DIP_STAGES[market]
     _, stage, pct = [x for x in stages if total >= x[0]][-1]
+    gate = S.DIP_MDD_GATE.get(market)
+    gated = False
+    if gate:
+        allowed = [cap for need, cap in gate if abs(detail["mdd"]) >= need][-1]
+        if pct > allowed:
+            _, stage, pct = [x for x in stages if total >= x[0] and x[2] <= allowed][-1]
+            gated = True
     buy_from = next(lo for lo, _, p in stages if p > 0)
     core_from = next(lo for lo, name, _ in stages if name == "본격 분할매수")
     rv = detail["rev"]
@@ -1740,13 +1755,14 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
             f" · RSI 일 {detail['rsi_d']:.0f}/주 {detail['rsi_w']:.0f}"
             f" · {senti_name} {detail['senti']:.0f} · 폭 200일 {detail['b200']:.0%}/50일 {detail['b50']:.0%}"
             f" · {credit_fmt(detail['credit'])}")
-    breakdown, rules = _dip_explain(market, cfg, detail, vol_table, credit_table, senti_name, stages)
+    breakdown, rules = _dip_explain(market, cfg, detail, vol_table, credit_table, senti_name, stages,
+                                    rsi_w_table, b50_table, gate)
     return out, {
         "price_data": [[d, v] for d, v in px if d >= out[0][0]],
         "reversal_data": rev_hist,   # 날짜별 충족된 반전 신호 개수(0~4)
         "dip_breakdown": breakdown,  # 화면 팝업: 현재 지표별 점수
         "dip_rules": rules,          # 화면 팝업: 구간표·가중치·매수 단계
-        "summary_tag": [stage, f"누적투입 {pct:.0%}"],
+        "summary_tag": [stage, f"누적투입 {pct:.0%}"] + (["MDD 조건으로 제한"] if gated else []),
         "summary_state": "good" if total >= buy_from else "neutral",
         "osc_ref": [buy_from, core_from],   # 1차 매수 · 본격 분할매수 시작점
         "note": note,

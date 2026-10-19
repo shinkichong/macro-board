@@ -738,7 +738,7 @@ function dipStrip(keys){
     const [name, sub] = DIP_LABEL[k] || [s.name, ""];
     const pts = s.data, last = pts[pts.length - 1], prev = pts[pts.length - 2];
     const diff = prev ? last[1] - prev[1] : 0;
-    const [stage, pct] = s.summary_tag || ["", ""];
+    const [stage, pct, gateNote] = s.summary_tag || ["", ""];
     const el = document.createElement("div");
     el.className = "dip-item";
     el.dataset.state = s.summary_state || "neutral";
@@ -747,7 +747,7 @@ function dipStrip(keys){
       <div class="dip-score">${fmt(last[1], 0)}<span>점</span></div>
       ${prev ? `<span class="delta" data-dir="${diff > 0 ? "up" : diff < 0 ? "down" : ""}">${diff >= 0 ? "+" : ""}${fmt(diff, 0)}점</span>` : ""}
       <span class="dip-stage">${stage}</span>
-      <span class="dip-pct">권장 <b>${String(pct).replace("누적투입 ", "누적투입 ")}</b></span>`;
+      <span class="dip-pct">권장 <b>${pct}</b>${gateNote ? ` <small>(${gateNote})</small>` : ""}</span>`;
     wrap.appendChild(el);
   }
   const btn = document.createElement("button");
@@ -816,6 +816,17 @@ function openDipDialog(keys, active){
         </tbody>
       </table>
       <p class="hint">누적투입률은 Buy-the-Dip 용 대기자금 중 지금까지 들어가 있어야 할 비율입니다. 이미 투입한 비율을 빼고 차액만 추가 매수합니다.</p>
+      ${r.gate ? `<h3>MDD 조건 — 점수가 높아도 하락폭이 따라와야 비중을 올립니다</h3>
+      <table>
+        <thead><tr><th>1년 고점 대비 하락폭</th><th class="num">허용 최대 누적투입률</th></tr></thead>
+        <tbody>${r.gate.map((g, i) => {
+            const nx = r.gate[i + 1];
+            const cur = r.mdd_now >= g[0] && (!nx || r.mdd_now < nx[0]);
+            return `<tr class="${cur ? "cur" : ""}"><td>${nx ? `${pctTxt(g[0])} ~ ${pctTxt(nx[0])}` : `${pctTxt(g[0])} 이상`}${cur ? ` ◀ 현재 ${(r.mdd_now * 100).toFixed(1)}%` : ""}</td>
+                    <td class="num">${pctTxt(g[1])}</td></tr>`;
+          }).join("")}</tbody>
+      </table>
+      <p class="hint">긴 하락장의 첫 국면(2008년 7월, 2022년 1월)에 점수만 보고 70~100%를 쓰던 문제를 막기 위한 조건입니다.</p>` : ""}
 
       <h3>지표별 점수 구간</h3>
       <p class="hint">괄호 안은 총점 100점 중 그 지표의 반영 비율입니다.</p>
