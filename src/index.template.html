@@ -479,7 +479,8 @@ function card(key, s){
   // summary_tag 가 있는 카드(예: 신용잔고 낙폭)는 기준선·200일선 판정 대신 그 문구(들)를 쓴다.
   // 그때 카드 색은 osc_ref(기준선) 아래로 내려갔을 때만 경고색으로 바꾼다.
   const {state, word} = s.summary_tag
-    ? {state: s.osc_ref != null && full[full.length - 1][1] <= Math.min(...[].concat(s.osc_ref)) ? "bad" : "neutral",
+    ? {state: s.summary_state
+             || (s.osc_ref != null && full[full.length - 1][1] <= Math.min(...[].concat(s.osc_ref)) ? "bad" : "neutral"),
        word: s.summary_tag}
     : judge(s, full);
   const [lastDate, lastVal] = full[full.length - 1];

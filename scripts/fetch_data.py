@@ -1365,6 +1365,263 @@ def index_rsi(series: dict, prev: dict, index_key: str, label: str) -> tuple[lis
     return out, {"price_data": [[d, x] for d, x in rows if d >= out[0][0]], "summary_tag": [word]}
 
 
+def _wilder_rsi(vals: list[float], period: int = RSI_PERIOD) -> list[float | None]:
+    """Wilder 평활 RSI. 앞쪽 period 개는 None."""
+    out: list[float | None] = [None] * len(vals)
+    avg_g = avg_l = 0.0
+    for i in range(1, len(vals)):
+        d = vals[i] - vals[i - 1]
+        g, l = max(d, 0.0), max(-d, 0.0)
+        if i <= period:
+            avg_g += g / period
+            avg_l += l / period
+            if i < period:
+                continue
+        else:
+            avg_g = (avg_g * (period - 1) + g) / period
+            avg_l = (avg_l * (period - 1) + l) / period
+        out[i] = 100.0 if avg_l == 0 else 100 - 100 / (1 + avg_g / avg_l)
+    return out
+
+
+def _weekly_rsi_asof(rows: list[list], period: int = RSI_PERIOD) -> list[float | None]:
+    """날짜별 '그날 기준' 주봉 RSI. 지난 주들은 주 마지막 종가, 이번 주는 그날
+    종가를 임시 주봉으로 쓴다 — 엑셀 STOCKHISTORY 주봉(진행 중인 주 포함)과 같다."""
+    weeks: list[float] = []            # 끝난 주들의 종가
+    avg_g = avg_l = 0.0                # 끝난 주까지의 Wilder 누적(첫 period 개는 합/period)
+    out: list[float | None] = []
+    cur_wk = None
+    for i, (d, c) in enumerate(rows):
+        wk = date.fromisoformat(d).isocalendar()[:2]
+        if cur_wk is not None and wk != cur_wk:
+            weeks.append(rows[i - 1][1])          # 지난 주 확정
+            n = len(weeks) - 1                    # 확정된 주간 변화 개수
+            if n >= 1:
+                dlt = weeks[-1] - weeks[-2]
+                g, l = max(dlt, 0.0), max(-dlt, 0.0)
+                if n <= period:
+                    avg_g += g / period
+                    avg_l += l / period
+                else:
+                    avg_g = (avg_g * (period - 1) + g) / period
+                    avg_l = (avg_l * (period - 1) + l) / period
+        cur_wk = wk
+        n = len(weeks)                 # 이번 주까지 넣으면 변화가 n 개
+        if n < period:
+            out.append(None)
+            continue
+        dlt = c - weeks[-1]
+        g, l = max(dlt, 0.0), max(-dlt, 0.0)
+        if n == period:                # 첫 RSI: 앞 period-1 개 + 이번 주의 단순평균
+            ag, al = avg_g + g / period, avg_l + l / period
+        else:
+            ag = (avg_g * (period - 1) + g) / period
+            al = (avg_l * (period - 1) + l) / period
+        out.append(100.0 if al == 0 else 100 - 100 / (1 + ag / al))
+    return out
+
+
+_CONSTITUENTS: dict[str, list[str]] = {}
+
+
+def _constituents(universe: str) -> list[str]:
+    """S&P 500(위키백과 표) / Nasdaq-100(nasdaq.com) 현재 구성종목을 Yahoo 표기로."""
+    if universe in _CONSTITUENTS:
+        return _CONSTITUENTS[universe]
+    if universe == "spx":
+        # 위키백과는 공용 세션(레거시 TLS 어댑터)으로 접속하면 403 을 준다 — 기본 requests 로 받는다
+        r = requests.get(S.SP500_LIST_URL, headers={"User-Agent": "Mozilla/5.0 (macro-board)"},
+                         timeout=TIMEOUT)
+        r.raise_for_status()
+        t = r.text
+        tb = re.search(r'<table[^>]*id="constituents".*?</table>', t, re.S).group(0)
+        syms = []
+        for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", tb, re.S):
+            tds = re.findall(r"<td[^>]*>(.*?)</td>", tr, re.S)
+            if tds:
+                syms.append(html.unescape(re.sub(r"<[^>]+>", "", tds[0])).strip())
+    else:
+        j = get(S.NDX_LIST_URL, headers={"User-Agent": UA, "Accept": "application/json"}).json()
+        syms = [r["symbol"] for r in j["data"]["data"]["rows"]]
+    syms = sorted({x.replace(".", "-") for x in syms if x})
+    if len(syms) < 90:
+        raise RuntimeError(f"{universe} 구성종목 목록이 비정상적으로 짧습니다 ({len(syms)}개)")
+    _CONSTITUENTS[universe] = syms
+    return syms
+
+
+_SPARK_CACHE: dict[str, list[list]] = {}
+
+
+def _spark_closes(symbols: list[str]) -> dict[str, list[list]]:
+    """Yahoo spark 로 여러 종목의 2년 일별 종가를 20개씩 묶어 받는다.
+    장중에 돌면 오늘 값(현재가)은 버린다 — yahoo() 와 같은 이유."""
+    need = [x for x in symbols if x not in _SPARK_CACHE]
+    for i in range(0, len(need), 20):
+        chunk = need[i:i + 20]
+        try:
+            r = get("https://query1.finance.yahoo.com/v7/finance/spark",
+                    params={"symbols": ",".join(chunk), "range": "2y", "interval": "1d"})
+            results = r.json().get("spark", {}).get("result") or []
+        except Exception as e:
+            print(f"    spark 실패({chunk[0]}…): {e}", flush=True)
+            results = []
+        for res in results:
+            resp = (res.get("response") or [{}])[0]
+            ts = resp.get("timestamp") or []
+            closes = ((resp.get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
+            regular = ((resp.get("meta") or {}).get("currentTradingPeriod") or {}).get("regular") or {}
+            cut = (regular.get("start")
+                   if regular.get("end") and time.time() < regular["end"] + 1800 else None)
+            _SPARK_CACHE[res["symbol"]] = [
+                [datetime.utcfromtimestamp(t).strftime("%Y-%m-%d"), c]
+                for t, c in zip(ts, closes) if c is not None and (cut is None or t < cut)]
+        time.sleep(0.3)
+    return {x: _SPARK_CACHE[x] for x in symbols if x in _SPARK_CACHE}
+
+
+def market_breadth(universe: str, prev_entry: dict | None) -> tuple[list[list], dict]:
+    """구성종목 중 200일선·50일선 위에 있는 비율(0~1)을 날짜별로 계산한다.
+    data = 200일선 위 비율, pct50 = 50일선 위 비율. 2년치 종가로 최근 약 1년을
+    계산하고 이전 실행에서 쌓인 값과 합친다. 현재 구성종목 기준이라 과거치에는
+    생존편향이 조금 있다."""
+    try:
+        members = _constituents(universe)
+    except Exception as e:
+        # 목록 출처가 클라우드 IP 를 막는 경우 등 — 직전에 받아둔 목록을 그대로 쓴다
+        members = (prev_entry or {}).get("constituents") or []
+        print(f"    구성종목 목록 실패({e}) → 직전 목록 {len(members)}개 사용", flush=True)
+        if not members:
+            raise
+    closes = _spark_closes(members)
+    if len(closes) < 80:
+        raise RuntimeError(f"시장 폭({universe}): 종가를 받은 종목이 {len(closes)}개뿐")
+    above: dict[int, dict[str, list[int]]] = {50: {}, 200: {}}   # 날짜 → [위, 전체]
+    for rows in closes.values():
+        vals = [v for _, v in rows]
+        for win in (50, 200):
+            if len(vals) < win:
+                continue
+            run = sum(vals[:win])
+            for i in range(win - 1, len(vals)):
+                if i >= win:
+                    run += vals[i] - vals[i - win]
+                cnt = above[win].setdefault(rows[i][0], [0, 0])
+                cnt[0] += vals[i] > run / win
+                cnt[1] += 1
+
+    def pct(win):   # 종목 절반 이상이 계산된 날짜만 (휴장일·데이터 공백 방지)
+        return {d: round(a / n, 4) for d, (a, n) in above[win].items() if n >= len(closes) * 0.5}
+
+    have200 = {d: v for d, v in ((prev_entry or {}).get("data") or [])}
+    have50 = {d: v for d, v in ((prev_entry or {}).get("pct50") or [])}
+    have200.update(pct(200))
+    have50.update(pct(50))
+    days = sorted(set(have200) & set(have50))
+    if not days:
+        raise RuntimeError(f"시장 폭({universe}): 계산된 날짜가 없습니다")
+    print(f"    {len(closes)}종목 · 최신 {days[-1]} 200일선 위 {have200[days[-1]]:.1%}"
+          f" / 50일선 위 {have50[days[-1]]:.1%}", flush=True)
+    return [[d, have200[d]] for d in days], {"pct50": [[d, have50[d]] for d in days],
+                                             "constituents": members}
+
+
+def _step(table: list[tuple], v: float) -> float:
+    """엑셀 LOOKUP 과 같이 v 이상인 가장 큰 하한의 원점수."""
+    out = table[0][1]
+    for lo, sc in table:
+        if v >= lo:
+            out = sc
+    return out
+
+
+def _ffill(rows: list[list], days: list[str]) -> dict[str, float]:
+    """rows 를 days 각 날짜 기준 가장 최근 값으로 맞춘다(그 전 값이 없으면 생략)."""
+    src = sorted(rows)
+    out, j, last = {}, 0, None
+    for d in days:
+        while j < len(src) and src[j][0] <= d:
+            last = src[j][1]
+            j += 1
+        if last is not None:
+            out[d] = last
+    return out
+
+
+def dip_score(series: dict, prev: dict, etf: str, breadth_key: str) -> tuple[list[list], dict]:
+    """Buy-the-Dip 패닉 점수(0~100). data/buy_the_dip_panic_score_v1.1.xlsx 와 같은 규칙으로
+    날짜마다 계산해 최근 1년 추이를 남긴다. 엑셀에서 손으로 넣던 반전 조건 두 개
+    (VIX 고점 대비 15% 하락, Breadth 5거래일 개선)는 sources.DIP_* 기준으로 자동 판정한다."""
+    def src(k):
+        return series.get(k) or prev.get(k) or {}
+    px = src(etf).get("data") or []
+    br = src(breadth_key)
+    if len(px) < 300 or not br.get("data"):
+        raise RuntimeError(f"Buy-the-Dip({etf}): 재료 데이터가 부족합니다")
+    days = [d for d, _ in px]
+    vals = [v for _, v in px]
+    rsi_d = _wilder_rsi(vals)
+    rsi_w = _weekly_rsi_asof(px)
+    vix = _ffill(src("vix").get("data") or [], days)
+    fg = _ffill(src("fear_greed").get("data") or [], days)
+    hy = _ffill(src("hy_yield").get("data") or [], days)
+    b200 = _ffill(br["data"], days)
+    b50 = _ffill(br.get("pct50") or [], days)
+    br_days = {d for d, _ in br["data"]}
+    vix_list = [vix.get(d) for d in days]
+
+    out, detail = [], None
+    start = (date.fromisoformat(days[-1]) - timedelta(days=400)).isoformat()
+    for i, d in enumerate(days):
+        if (d < start or d not in br_days or d not in vix or d not in fg or d not in hy
+                or i < 10 or rsi_d[i - 1] is None or rsi_w[i] is None):
+            continue
+        lo_day = (date.fromisoformat(d) - timedelta(days=365)).isoformat()
+        peak = max(v for dd, v in zip(days[:i + 1], vals[:i + 1]) if dd >= lo_day)
+        mdd = vals[i] / peak - 1
+        sma10 = sum(vals[i - 9:i + 1]) / 10
+        vix_peak = max(v for v in vix_list[max(0, i - S.DIP_VIX_PEAK_DAYS + 1):i + 1] if v is not None)
+        j5 = i - S.DIP_BREADTH_IMPROVE
+        raw = dict(
+            mdd=_step(S.DIP_MDD[etf], abs(mdd)),
+            vix=_step(S.DIP_VIX, vix[d]),
+            rsi=0.6 * _step(S.DIP_RSI_D, rsi_d[i]) + 0.4 * _step(S.DIP_RSI_W, rsi_w[i]),
+            fg=_step(S.DIP_FG, fg[d]),
+            breadth=0.6 * _step(S.DIP_BREADTH, b200[d]) + 0.4 * _step(S.DIP_BREADTH, b50[d]),
+            hy=_step(S.DIP_HY, hy[d] / 100),
+        )
+        panic = sum(raw[k] * S.DIP_WEIGHTS[k] / 100 for k in raw)
+        rev = dict(
+            vix_off_peak=vix[d] <= vix_peak * 0.85,
+            rsi_recross=rsi_d[i - 1] <= 30 < rsi_d[i],
+            above_10dma=vals[i] >= sma10,
+            breadth_up=j5 >= 0 and days[j5] in b50 and b50[d] > b50[days[j5]],
+        )
+        total = round(panic + S.DIP_REVERSAL_PTS * sum(rev.values()))
+        out.append([d, total])
+        detail = dict(mdd=mdd, vix=vix[d], rsi_d=rsi_d[i], rsi_w=rsi_w[i], fg=fg[d],
+                      b200=b200[d], b50=b50[d], hy=hy[d], panic=panic, rev=rev)
+    if not out:
+        raise RuntimeError(f"Buy-the-Dip({etf}): 계산 가능한 날짜가 없습니다")
+
+    total = out[-1][1]
+    _, stage, pct = [x for x in S.DIP_STAGES if total >= x[0]][-1]
+    rv = detail["rev"]
+    marks = " ".join(f"{name}{'✓' if rv[key] else '·'}" for key, name in
+                     (("vix_off_peak", "VIX↓"), ("rsi_recross", "RSI30↑"),
+                      ("above_10dma", "10일선"), ("breadth_up", "폭↑")))
+    note = (f"패닉 {detail['panic']:.1f}/80 · 반전 {S.DIP_REVERSAL_PTS * sum(rv.values())}/20 ({marks}) — "
+            f"MDD {detail['mdd']:.1%} · VIX {detail['vix']:.1f} · RSI 일 {detail['rsi_d']:.0f}/주 {detail['rsi_w']:.0f}"
+            f" · F&G {detail['fg']:.0f} · 폭 200일 {detail['b200']:.0%}/50일 {detail['b50']:.0%}"
+            f" · HY {detail['hy']:.2f}%")
+    return out, {
+        "price_data": [[d, v] for d, v in px if d >= out[0][0]],
+        "summary_tag": [stage, f"누적투입 {pct:.0%}"],
+        "summary_state": "good" if total >= 50 else "neutral",
+        "note": note,
+    }
+
+
 def dedupe(rows: list[list]) -> list[list]:
     """날짜 오름차순 정렬 + 중복 날짜 제거."""
     seen, out = set(), []
@@ -1656,6 +1913,32 @@ def build_jobs(prev: dict, series: dict) -> dict:
             osc_legend="RSI (14)", price_legend=f"{idx_name}지수",
             osc_color="var(--ink)", osc_width=1.8, fixed_period_months=12,
             note="70 이상 과매수, 30 이하 과매도")
+
+    # Buy-the-Dip 점수 재료 (LAYOUT 에는 없는 내부 전용 시리즈)
+    for key, sym in (("spy", "SPY"), ("qqq", "QQQ")):
+        jobs[key] = dict(
+            # 점수 계산에는 1년 고점·주봉 RSI 용 약 3년치면 충분해서 그만큼만 남긴다
+            fn=(lambda k=key, y=sym: index_series(dict(yahoo=y, stooq=f"{y.lower()}.us"),
+                                                  prev_data=prev.get(k, {}).get("data"))[-800:]),
+            name=f"{sym} 종가 (내부용)", unit="", decimals=2,
+            threshold=None, below_is=None, freq="daily", source="Yahoo Finance", source_url="")
+    for key, uni, label in (("breadth_spx", "spx", "S&P 500"), ("breadth_ndx", "ndx", "Nasdaq-100")):
+        jobs[key] = dict(
+            fn=(lambda k=key, u=uni: market_breadth(u, prev.get(k))),
+            name=f"{label} 200일선 위 종목 비율 (내부용)", unit="", decimals=3,
+            threshold=None, below_is=None, freq="daily",
+            source="Yahoo Finance (구성종목 계산)", source_url="")
+    for key, etf, bkey, label in (("dip_spy", "spy", "breadth_spx", "S&P 500 (SPY)"),
+                                  ("dip_qqq", "qqq", "breadth_ndx", "Nasdaq-100 (QQQ)")):
+        jobs[key] = dict(
+            fn=(lambda e=etf, b=bkey: dip_score(series, prev, e, b)),
+            name=f"Buy-the-Dip 점수 · {label}", unit="점", decimals=0, delta_unit="점",
+            threshold=None, below_is=None, osc_ref=[50, 60], osc_range=[0, 100],
+            freq="daily", source="Yahoo · CBOE · CNN · FRED (커스텀 계산)", source_url="",
+            kind="dual", price_label=etf.upper(), price_unit="", price_decimals=0,
+            osc_legend="점수", price_legend=etf.upper(),
+            osc_color="var(--ink)", osc_width=2.0, fixed_period_months=12,
+            note="")   # 세부 지표는 dip_score 가 채운다
 
     # LAYOUT 에는 없는 내부 전용 시리즈 — kospi_fg_osc 계산에만 쓰인다.
     jobs["kospi200_call_vol"] = dict(

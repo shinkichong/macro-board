@@ -224,11 +224,41 @@ VKOSPI_REF_URL = "https://kr.investing.com/indices/kospi-volatility"
 ISM_REF_URL = "https://kr.investing.com/economic-calendar/ism-manufacturing-pmi-173"
 
 # ─────────────────────────────────────────────────────────────
+# Buy-the-Dip 패닉 점수 (data/buy_the_dip_panic_score_v1.1.xlsx 와 같은 규칙)
+#
+# 패닉 80점 + 반전 20점. 각 표는 (하한, 원점수) — 엑셀 LOOKUP 과 같이
+# "값 이상인 가장 큰 하한"의 원점수를 쓴다. 원점수(0~100) × 가중치/100 을 합산.
+# SPY·QQQ 를 S&P 500·Nasdaq-100 대용으로 쓴다(엑셀과 동일).
+# ─────────────────────────────────────────────────────────────
+DIP_MDD = {   # |고점 대비 하락률|
+    "spy": [(0, 0), (.05, 15), (.10, 30), (.15, 50), (.20, 65), (.25, 80), (.30, 90), (.35, 100)],
+    "qqq": [(0, 0), (.07, 15), (.12, 30), (.18, 50), (.25, 65), (.32, 80), (.40, 90), (.50, 100)],
+}
+DIP_VIX = [(0, 0), (15, 10), (20, 25), (25, 40), (30, 55), (35, 70), (40, 85), (50, 95), (65, 100)]
+DIP_RSI_D = [(0, 100), (20, 100), (25, 80), (30, 60), (35, 40), (40, 20), (50, 0)]
+DIP_RSI_W = [(0, 100), (30, 100), (35, 80), (40, 60), (45, 40), (50, 20), (55, 0)]
+DIP_FG = [(0, 100), (10, 80), (20, 60), (30, 40), (45, 20), (55, 10), (75, 0)]
+DIP_BREADTH = [(0, 100), (.1, 90), (.2, 80), (.3, 60), (.4, 40), (.5, 25), (.6, 15), (.7, 0)]
+DIP_HY = [(0, 0), (.03, 15), (.04, 30), (.05, 45), (.06, 65), (.08, 85), (.10, 100)]
+DIP_WEIGHTS = dict(mdd=30, vix=12, rsi=10, fg=6, breadth=13, hy=9)   # 합 80
+DIP_REVERSAL_PTS = 5                                                 # 4개 × 5 = 20
+DIP_STAGES = [   # (하한, 매수 단계, 누적투입률)
+    (0, "대기", 0), (40, "현금 유지·점검", 0), (50, "1차 소액 매수", .05),
+    (60, "본격 분할매수", .15), (70, "매수 비중 확대", .30), (80, "강한 매수", .50),
+    (90, "대규모 분할매수", .75), (95, "현금 대부분 투입", .90), (100, "남은 자금 마무리", 1.0),
+]
+# 엑셀이 정하지 않은 반전 조건의 세부 기준
+DIP_VIX_PEAK_DAYS = 20      # "VIX 고점" = 최근 20 거래일 최고치
+DIP_BREADTH_IMPROVE = 5     # "Breadth 5거래일 개선" = 50일선 위 비율이 5거래일 전보다 높음
+SP500_LIST_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+NDX_LIST_URL = "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
+
+# ─────────────────────────────────────────────────────────────
 # 화면 구성 — index.html 이 이 순서/그룹대로 카드를 그립니다.
 # ─────────────────────────────────────────────────────────────
 LAYOUT = [
     dict(group="미국 시장", keys=[
-        "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc",
+        "dip_spy", "dip_qqq", "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc",
         "spx_drawdown", "ndx_drawdown", "ndx_rsi", "vix",
         "ust10y", "rate_hy_combo", "yc_10y2y",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
@@ -244,6 +274,8 @@ LAYOUT = [
 # 신용융자 잔고 2종도 단독 카드 대신 지수와 겹친 콤보 카드로만 보여주지만,
 # 원본은 날짜 손실 없이 따로 쌓아둔다.
 INTERNAL_GROUP_EXTRAS = {
+    # Buy-the-Dip 점수 재료: SPY·QQQ 종가, 구성종목 시장 폭(50·200일선 위 비율)
+    "미국 시장": {"spy", "qqq", "breadth_spx", "breadth_ndx"},
     "국내 시장": {"kospi200_call_vol", "kospi200_put_vol",
                 "bond5y_futures", "bond10y_futures",
                 "kospi_credit", "kosdaq_credit"},
