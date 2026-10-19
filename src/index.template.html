@@ -133,6 +133,68 @@ body{
 .stale{color:var(--bad); font-weight:500}
 .note{margin:4px 0 0; font-size:11.5px; color:var(--ink-3)}
 
+/* ── Buy-the-Dip 요약 줄 + 기준 팝업 ───────────────────────────── */
+.dip-strip{
+  display:flex; flex-wrap:wrap; align-items:stretch; gap:10px; margin:0 0 14px;
+}
+.dip-item{
+  flex:1 1 300px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  background:var(--surface); border:1px solid var(--rule); border-left:3px solid var(--ink-3);
+  border-radius:8px; padding:9px 14px; box-shadow:var(--shadow);
+}
+.dip-item[data-state="good"]{border-left-color:var(--good)}
+.dip-item .dip-name{font-size:12.5px; color:var(--ink-2); min-width:118px}
+.dip-item .dip-name small{display:block; font-size:11px; color:var(--ink-3)}
+.dip-item .dip-score{font-size:24px; font-weight:600; letter-spacing:-.02em; line-height:1}
+.dip-item .dip-score span{font-size:13px; font-weight:500; color:var(--ink-2); margin-left:2px}
+.dip-item .delta{font-size:12.5px; font-weight:500}
+.dip-item .delta[data-dir="up"]{color:var(--good)}
+.dip-item .delta[data-dir="down"]{color:var(--bad)}
+.dip-item .dip-stage{
+  font-size:12.5px; font-weight:600; padding:3px 9px; border-radius:5px;
+  background:var(--surface-2); border:1px solid var(--rule);
+}
+.dip-item[data-state="good"] .dip-stage{background:var(--good-soft); border-color:transparent; color:var(--good)}
+.dip-item .dip-pct{font-size:12.5px; color:var(--ink-2)}
+.dip-item .dip-pct b{color:var(--ink); font-weight:600}
+.dip-info{
+  align-self:center; font:inherit; font-size:12px; font-weight:500; padding:8px 12px; cursor:pointer;
+  border:1px solid var(--rule); border-radius:8px; background:var(--surface); color:var(--ink-2);
+}
+.dip-info:hover{border-color:var(--ink-3); color:var(--ink)}
+
+dialog.dip-dlg{
+  width:min(860px, calc(100vw - 32px)); max-height:calc(100vh - 48px); padding:0;
+  border:1px solid var(--rule); border-radius:10px; background:var(--surface); color:var(--ink);
+  box-shadow:0 10px 40px rgba(0,0,0,.25);
+}
+dialog.dip-dlg::backdrop{background:rgba(10,18,24,.45)}
+.dip-dlg .dlg-head{
+  position:sticky; top:0; z-index:1; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:12px 16px; background:var(--surface); border-bottom:1px solid var(--rule);
+}
+.dip-dlg .dlg-head h2{font-size:15px; margin:0 auto 0 0}
+.dip-dlg .dlg-close{
+  font:inherit; font-size:18px; line-height:1; width:30px; height:30px; cursor:pointer;
+  border:1px solid var(--rule); border-radius:6px; background:none; color:var(--ink-2);
+}
+.dip-dlg .dlg-body{padding:6px 16px 18px; font-size:13px}
+.dip-dlg h3{font-size:13.5px; margin:16px 0 6px}
+.dip-dlg p.hint{margin:4px 0 8px; font-size:12px; color:var(--ink-3)}
+.dip-dlg table{width:100%; border-collapse:collapse; font-size:12.5px}
+.dip-dlg th, .dip-dlg td{padding:5px 8px; border-bottom:1px solid var(--rule); text-align:left; vertical-align:top}
+.dip-dlg th{font-weight:500; color:var(--ink-2); background:var(--surface-2)}
+.dip-dlg td.num, .dip-dlg th.num{text-align:right; white-space:nowrap}
+.dip-dlg tr.total td{font-weight:600; border-top:2px solid var(--rule)}
+.dip-dlg tr.cur td{background:var(--good-soft); font-weight:600}
+.dip-dlg td small{display:block; color:var(--ink-3); font-size:11px}
+.dip-dlg .bands{display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+.dip-dlg .bands table{font-size:12px}
+.dip-dlg .bands caption{caption-side:top; text-align:left; font-size:12.5px; font-weight:500; padding:0 0 4px}
+.dip-dlg .bands caption span{color:var(--ink-3); font-weight:400}
+.dip-dlg .met{color:var(--good); font-weight:600}
+@media (max-width:560px){ .dip-item .dip-name{min-width:0} }
+
 .tip{
   position:absolute; pointer-events:none; opacity:0; transform:translate(-50%,-100%);
   background:var(--ink); color:var(--surface); font-size:11.5px; line-height:1.35;
@@ -660,6 +722,114 @@ async function triggerUpdate(group, btn){
   setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4000);
 }
 
+
+/* ── Buy-the-Dip 요약 줄 + 기준 팝업 ─────────────────────────────── */
+const DIP_LABEL = {dip_spy: ["S&P 500", "SPY"], dip_qqq: ["Nasdaq-100", "QQQ"],
+                   dip_kospi: ["코스피", "KOSPI"], dip_kosdaq: ["코스닥", "KOSDAQ"]};
+
+function dipStrip(keys){
+  const d = STATE.data;
+  const items = keys.filter(k => k.startsWith("dip_") && d.series[k] && d.series[k].data && d.series[k].data.length);
+  if(!items.length) return null;
+  const wrap = document.createElement("div");
+  wrap.className = "dip-strip";
+  for(const k of items){
+    const s = d.series[k];
+    const [name, sub] = DIP_LABEL[k] || [s.name, ""];
+    const pts = s.data, last = pts[pts.length - 1], prev = pts[pts.length - 2];
+    const diff = prev ? last[1] - prev[1] : 0;
+    const [stage, pct] = s.summary_tag || ["", ""];
+    const el = document.createElement("div");
+    el.className = "dip-item";
+    el.dataset.state = s.summary_state || "neutral";
+    el.innerHTML = `
+      <div class="dip-name">Buy-the-Dip · ${name}<small>${sub} · ${last[0]}${s.stale ? " · 갱신 실패" : ""}</small></div>
+      <div class="dip-score">${fmt(last[1], 0)}<span>점</span></div>
+      ${prev ? `<span class="delta" data-dir="${diff > 0 ? "up" : diff < 0 ? "down" : ""}">${diff >= 0 ? "+" : ""}${fmt(diff, 0)}점</span>` : ""}
+      <span class="dip-stage">${stage}</span>
+      <span class="dip-pct">권장 <b>${String(pct).replace("누적투입 ", "누적투입 ")}</b></span>`;
+    wrap.appendChild(el);
+  }
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "dip-info";
+  btn.textContent = "ⓘ 점수 기준 보기";
+  btn.onclick = () => openDipDialog(items, items[0]);
+  wrap.appendChild(btn);
+  return wrap;
+}
+
+function openDipDialog(keys, active){
+  let dlg = document.getElementById("dipDialog");
+  if(!dlg){
+    dlg = document.createElement("dialog");
+    dlg.id = "dipDialog";
+    dlg.className = "dip-dlg";
+    dlg.addEventListener("click", e => { if(e.target === dlg) dlg.close(); });   // 바깥(배경) 클릭 시 닫기
+    document.body.appendChild(dlg);
+  }
+  const d = STATE.data;
+  const s = d.series[active];
+  const r = s.dip_rules, bd = s.dip_breakdown || [];
+  const pctTxt = v => `${Math.round(v * 100)}%`;
+  const score = s.data[s.data.length - 1][1];
+
+  const panicRows = bd.filter(x => !x.reversal), revRows = bd.filter(x => x.reversal);
+  const panicSum = panicRows.reduce((a, x) => a + x.points, 0);
+  const revSum = revRows.reduce((a, x) => a + x.points, 0);
+  const curStage = r.stages.filter(st => score >= st[0]).pop();
+
+  dlg.innerHTML = `
+    <div class="dlg-head">
+      <h2>Buy-the-Dip 점수 기준</h2>
+      <div class="seg" role="group" aria-label="시장 선택">
+        ${keys.map(k => `<button type="button" data-k="${k}" aria-pressed="${k === active}">${(DIP_LABEL[k] || [k])[0]}</button>`).join("")}
+      </div>
+      <button type="button" class="dlg-close" aria-label="닫기">×</button>
+    </div>
+    <div class="dlg-body">
+      <h3>현재 지표별 점수 — ${s.data[s.data.length - 1][0]} 기준 · 총 ${score}점</h3>
+      <table>
+        <thead><tr><th>지표</th><th>현재값</th><th class="num">원점수<br>(0~100)</th><th class="num">반영 비율<br>(최대 점수)</th><th class="num">반영 점수</th></tr></thead>
+        <tbody>
+          ${panicRows.map(x => `<tr><td>${x.label}${x.sub ? `<small>${x.sub}</small>` : ""}</td><td>${x.value}</td>
+              <td class="num">${fmt(x.raw, 0)}</td><td class="num">${x.weight}%</td><td class="num">${fmt(x.points, 1)}</td></tr>`).join("")}
+          <tr class="total"><td colspan="3">패닉 점수</td><td class="num">${r.panic_max}</td><td class="num">${fmt(panicSum, 1)}</td></tr>
+          ${revRows.map(x => `<tr><td>반전 · ${x.label}</td><td class="${x.points ? "met" : ""}">${x.value}</td>
+              <td class="num">—</td><td class="num">${x.weight}점</td><td class="num">${x.points}</td></tr>`).join("")}
+          <tr class="total"><td colspan="3">반전 점수</td><td class="num">${r.reversal_max}</td><td class="num">${revSum}</td></tr>
+          <tr class="total"><td colspan="3">총점 (반올림)</td><td class="num">100</td><td class="num">${score}</td></tr>
+        </tbody>
+      </table>
+      <p class="hint">${r.note}</p>
+
+      <h3>점수별 매수 단계 · 권장 누적투입률</h3>
+      <table>
+        <thead><tr><th>점수</th><th>매수 단계</th><th class="num">누적투입률</th></tr></thead>
+        <tbody>
+          ${r.stages.map((st, i) => {
+            const hi = r.stages[i + 1] ? r.stages[i + 1][0] - 1 : 100;
+            const cur = curStage && st[0] === curStage[0];
+            return `<tr class="${cur ? "cur" : ""}"><td>${st[0]}${hi > st[0] ? "~" + hi : ""}점${cur ? " ◀ 현재" : ""}</td>
+                    <td>${st[1]}</td><td class="num">${pctTxt(st[2])}</td></tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+      <p class="hint">누적투입률은 Buy-the-Dip 용 대기자금 중 지금까지 들어가 있어야 할 비율입니다. 이미 투입한 비율을 빼고 차액만 추가 매수합니다.</p>
+
+      <h3>지표별 점수 구간</h3>
+      <p class="hint">괄호 안은 총점 100점 중 그 지표의 반영 비율입니다.</p>
+      <div class="bands">
+        ${r.tables.map(tb => `<table><caption>${tb.label} <span>(${tb.weight}%)</span></caption>
+          <thead><tr><th>구간</th><th class="num">원점수</th></tr></thead>
+          <tbody>${tb.rows.map(([txt, sc]) => `<tr><td>${txt}</td><td class="num">${sc}</td></tr>`).join("")}</tbody></table>`).join("")}
+      </div>
+    </div>`;
+  dlg.querySelector(".dlg-close").onclick = () => dlg.close();
+  dlg.querySelectorAll("[data-k]").forEach(b => b.onclick = () => openDipDialog(keys, b.dataset.k));
+  if(!dlg.open) dlg.showModal();
+}
+
 /* ── 렌더 ─────────────────────────────────────────────────────── */
 function render(){
   const d = STATE.data;
@@ -673,6 +843,8 @@ function render(){
     sec.innerHTML = `<h2><span>${grp.group}</span><span class="rule"></span>
       <button type="button" class="update-btn" data-group="${grp.group}">↻ 업데이트</button></h2>`;
     sec.querySelector(".update-btn").onclick = e => triggerUpdate(grp.group, e.currentTarget);
+    const strip = dipStrip(grp.keys);   // Buy-the-Dip 요약은 그룹 맨 위에 항상 보이게
+    if(strip) sec.appendChild(strip);
     const grid = document.createElement("div");
     grid.className = "grid";
 
@@ -741,6 +913,13 @@ function render(){
 
   render();
   addEventListener("resize", () => { tip.dataset.on = "0"; });
+  // 주소 끝에 #dip 을 붙여 열면 Buy-the-Dip 기준 팝업을 바로 띄운다 (#dip-kospi 처럼 시장 지정 가능)
+  if(location.hash.startsWith("#dip")){
+    const all = d.layout.flatMap(g => g.keys).filter(k => k.startsWith("dip_") && d.series[k]);
+    const want = "dip_" + (location.hash.split("-")[1] || "");
+    const grpKeys = d.layout.find(g => g.keys.includes(all.includes(want) ? want : all[0])).keys.filter(k => all.includes(k));
+    if(all.length) openDipDialog(grpKeys, all.includes(want) ? want : grpKeys[0]);
+  }
 })();
 </script>
 </body>
