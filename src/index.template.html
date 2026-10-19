@@ -765,7 +765,8 @@ function dipStrip(keys){
     const [name, sub] = DIP_LABEL[k] || [s.name, ""];
     const pts = s.data, last = pts[pts.length - 1], prev = pts[pts.length - 2];
     const diff = prev ? last[1] - prev[1] : 0;
-    const [stage, pct, gateNote] = s.summary_tag || ["", ""];
+    const [stage, pct, ...notes] = s.summary_tag || ["", ""];
+    const gateNote = notes.join(" · ");
     const el = document.createElement("div");
     el.className = "dip-item";
     el.dataset.state = s.summary_state || "neutral";
@@ -855,6 +856,9 @@ function openDipDialog(keys, active){
           }).join("")}</tbody>
       </table>
       <p class="hint">긴 하락장의 첫 국면(2008년 7월, 2022년 1월)에 점수만 보고 70~100%를 쓰던 문제를 막기 위한 조건입니다.</p>` : ""}
+      ${r.vix_floor ? `<h3>VIX 급등 최소 투입</h3>
+      <p class="hint" style="font-size:12.5px;color:var(--ink-2)">VIX가 <b>${r.vix_floor[0]} 이상</b>이면 점수와 상관없이 누적투입률을 최소 <b>${pctTxt(r.vix_floor[1])}</b>로 올립니다.
+      2024년 8월처럼 하락폭은 작아도 공포가 급등하는 급락을 놓치지 않기 위한 규칙입니다.</p>` : ""}
 
       <h3>지표별 점수 구간</h3>
       <p class="hint">괄호 안은 총점 100점 중 그 지표의 반영 비율입니다.</p>

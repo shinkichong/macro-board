@@ -1650,6 +1650,7 @@ def _dip_explain(market: str, cfg: dict, det: dict, vol_table: list, credit_tabl
         stages=[[lo, name, pct] for lo, name, pct in stages],
         panic_max=sum(W.values()), reversal_max=S.DIP_REVERSAL_PTS * 4,
         gate=[[need, cap] for need, cap in gate] if gate else None,
+        vix_floor=list(S.DIP_VIX_FLOOR) if market in ("spy", "qqq") else None,
         mdd_now=abs(det["mdd"]),
         note=("각 지표의 원점수(0~100)에 반영 비율을 곱해 더한 패닉 점수(최대 80)와 "
               "반전 신호 4개(각 5점, 최대 20)를 합산합니다. 구간은 '하한 이상'인 가장 높은 구간을 적용합니다."),
@@ -1744,6 +1745,12 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         if pct > allowed:
             _, stage, pct = [x for x in stages if total >= x[0] and x[2] <= allowed][-1]
             gated = True
+    vix_floor = False
+    if market in ("spy", "qqq"):
+        vix_min, floor_pct = S.DIP_VIX_FLOOR
+        if detail["vol"] >= vix_min and pct < floor_pct:
+            _, stage, pct = next(x for x in stages if x[2] >= floor_pct)
+            vix_floor = True
     buy_from = next(lo for lo, _, p in stages if p > 0)
     core_from = next(lo for lo, name, _ in stages if name == "본격 분할매수")
     rv = detail["rev"]
@@ -1762,8 +1769,10 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         "reversal_data": rev_hist,   # 날짜별 충족된 반전 신호 개수(0~4)
         "dip_breakdown": breakdown,  # 화면 팝업: 현재 지표별 점수
         "dip_rules": rules,          # 화면 팝업: 구간표·가중치·매수 단계
-        "summary_tag": [stage, f"누적투입 {pct:.0%}"] + (["MDD 조건으로 제한"] if gated else []),
-        "summary_state": "good" if total >= buy_from else "neutral",
+        "summary_tag": [stage, f"누적투입 {pct:.0%}"]
+                       + (["MDD 조건으로 제한"] if gated else [])
+                       + ([f"VIX {S.DIP_VIX_FLOOR[0]} 이상 최소 {S.DIP_VIX_FLOOR[1]:.0%}"] if vix_floor else []),
+        "summary_state": "good" if pct > 0 else "neutral",
         "osc_ref": [buy_from, core_from],   # 1차 매수 · 본격 분할매수 시작점
         "note": note,
     }
