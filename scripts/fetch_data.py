@@ -2354,7 +2354,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
         name="한국 과매도·과매수 점검 (SIO)", unit="%", decimals=0, delta_unit="%p",
         threshold=None, below_is=None, freq="daily", kind="multi",
         source="네이버 시가총액 순위 · Yahoo Finance (커스텀 계산)", source_url="",
-        fixed_period_months=3, osc_ref=[S.SIO_OVERSOLD, S.SIO_OVERBOUGHT], osc_range=[-100, 100], note="")
+        fixed_days=15, osc_ref=[S.SIO_OVERSOLD, S.SIO_OVERBOUGHT], osc_range=[-100, 100], note="")
 
     # Buy-the-Dip 점수 — 재료(지수·VKOSPI·F&G·신용잔고·시장 폭)가 모두 갱신된 뒤에 계산
     for key, mkt, label, src_txt in (
