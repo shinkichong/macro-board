@@ -2001,10 +2001,8 @@ def kr_sio(prev_entry: dict | None, series: dict, prev: dict) -> tuple[list[list
     bottom_now = [g for g in names if any(d in recent5 for d in bots[g])]
     oversold_now = [g for g in names if out_groups[g] and out_groups[g][-1][1] <= S.SIO_OVERSOLD]
     if bottom_now:
-        tags.append("바닥 통과: " + ", ".join(bottom_now))
-    note = (" · ".join(f"{g} {out_groups[g][-1][1]:+.0f}%" for g in names if out_groups[g])
-            + f" ({last_day}). −80% 이하 과매도, +80% 이상 과매수, 과매도 뒤 {S.SIO_BOTTOM_DAYS}거래일 안에 "
-              "+80% 이상이면 바닥 통과(아래 ▲, 코스피200 기준). 종목군은 시가총액 순위로 근사")
+        tags.append("▲ 바닥 통과")
+    note = "−80% 이하 과매도 · +80% 이상 과매수 · ▲ 과매도 뒤 5일 내 +80% (바닥 통과)"
     return main, {
         "groups": out_groups, "bottoms": bots, "summary_tag": tags, "note": note,
         "summary_state": "good" if bottom_now else ("bad" if oversold_now else "neutral"),
