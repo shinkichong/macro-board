@@ -311,6 +311,19 @@ SP500_LIST_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 NDX_LIST_URL = "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
 
 # ─────────────────────────────────────────────────────────────
+# 한국 SIO (종목군 과매도/과매수) — 그날 종목군 안에서 상승·하락 쪽으로 거래량과 등락폭이
+# 얼마나 쏠렸는지(-100% ~ +100%). 상승 종목의 거래량 비중과 상승폭 비중의 평균을 '상승 평균',
+# 하락 쪽도 같은 방식으로 '하락 평균'을 구해 더 큰 쪽을 부호와 함께 쓴다.
+# 종목군은 네이버 시가총액 순위(ETF 제외)로 근사: 코스피 1~200위 ≈ 코스피200,
+# 코스닥 1~150위 ≈ 코스닥150, 코스피 1~100위 = 코스피 대형주.
+# ─────────────────────────────────────────────────────────────
+SIO_GROUPS = [("코스피200", "kospi", 200), ("코스닥150", "kosdaq", 150), ("코스피대형주", "kospi", 100)]
+SIO_OVERSOLD = -80          # 이하면 과매도 (종목군 전체가 거래량을 실어 한꺼번에 팔린 날)
+SIO_OVERBOUGHT = 80         # 이상이면 과매수
+SIO_STRONG_OVERBOUGHT = 90
+SIO_BOTTOM_DAYS = 5         # 과매도 뒤 이 거래일 안에 과매수로 돌아서면 '바닥 통과'
+
+# ─────────────────────────────────────────────────────────────
 # 화면 구성 — index.html 이 이 순서/그룹대로 카드를 그립니다.
 # ─────────────────────────────────────────────────────────────
 LAYOUT = [
@@ -321,7 +334,7 @@ LAYOUT = [
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "dip_kospi", "dip_kosdaq", "vkospi",
-                                  "kospi_drawdown", "kosdaq_drawdown", "kospi_rsi",
+                                  "kospi_drawdown", "kosdaq_drawdown", "kospi_rsi", "kr_sio",
                                   "kospi_credit_combo", "kosdaq_credit_combo", "kospi200_pcr", "kr_exports_yoy"]),
 ]
 

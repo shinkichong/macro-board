@@ -1854,6 +1854,163 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
     }
 
 
+_KR_RANKED: dict[str, list[dict]] = {}
+
+
+def _kr_ranked(market: str) -> list[dict]:
+    """네이버 시가총액 순위(ETF 제외)를 순서대로. 종목별 오늘 등락률·거래량·마지막 체결 시각 포함."""
+    if market not in _KR_RANKED:
+        out, page = [], 1
+        while len(out) < 200 and page <= 5:
+            j = get(S.NAVER_MARKET_VALUE_URL.format(market=market.upper()),
+                    params={"page": page, "pageSize": 100}).json()
+            out += [r for r in j.get("stocks", []) if r.get("stockEndType") == "stock"]
+            page += 1
+        _KR_RANKED[market] = out
+    return _KR_RANKED[market]
+
+
+def _num(x) -> float | None:
+    try:
+        return float(str(x).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _sio_value(moves: list[tuple[float, float]]) -> float | None:
+    """[(등락률, 거래량)] → SIO(%). 상승·하락 각각 (거래량 비중 + 등락폭 비중)/2, 큰 쪽을 부호와 함께."""
+    up_v = dn_v = up_p = dn_p = 0.0
+    for chg, vol in moves:
+        if vol is None or vol <= 0 or chg is None:
+            continue
+        if chg > 1e-12:
+            up_v += vol; up_p += chg
+        elif chg < -1e-12:
+            dn_v += vol; dn_p -= chg
+    tv, tp = up_v + dn_v, up_p + dn_p
+    if not tv or not tp:
+        return None
+    up = (up_v / tv + up_p / tp) / 2
+    dn = (dn_v / tv + dn_p / tp) / 2
+    return round(100 * (up if up > dn else -dn), 1)
+
+
+def _yahoo_close_vol(symbol: str, range_: str) -> dict[str, tuple[float, float]]:
+    """Yahoo 일봉 종가·거래량. 장중에 돌면 오늘 캔들(현재가)은 버린다."""
+    j = get(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+            params={"range": range_, "interval": "1d"}, timeout=20, retries=2).json()["chart"]["result"][0]
+    q = j["indicators"]["quote"][0]
+    regular = ((j.get("meta") or {}).get("currentTradingPeriod") or {}).get("regular") or {}
+    cut = regular.get("start") if regular.get("end") and time.time() < regular["end"] + 1800 else None
+    return {datetime.utcfromtimestamp(t + 9 * 3600).strftime("%Y-%m-%d"): (c, v)
+            for t, c, v in zip(j.get("timestamp") or [], q.get("close") or [], q.get("volume") or [])
+            if c and (cut is None or t < cut)}
+
+
+def _sio_from_yahoo(groups: dict[str, list[str]], range_: str) -> dict[str, dict[str, float]]:
+    """종목별 Yahoo 일봉으로 날짜별 SIO 를 거꾸로 계산 (처음 적재·빠진 날 보충용)."""
+    from concurrent.futures import ThreadPoolExecutor
+    symbols = sorted({x for v in groups.values() for x in v})
+    hist: dict[str, dict] = {}
+
+    def one(sym):
+        try:
+            return sym, _yahoo_close_vol(sym, range_)
+        except Exception:
+            return sym, {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for sym, h in ex.map(one, symbols):
+            if h:
+                hist[sym] = h
+    print(f"    Yahoo 일봉 {len(hist)}/{len(symbols)}종목", flush=True)
+    out: dict[str, dict[str, float]] = {g: {} for g in groups}
+    for g, members in groups.items():
+        days = sorted({d for m in members for d in hist.get(m, {})})
+        for k in range(1, len(days)):
+            d, pd = days[k], days[k - 1]
+            moves = []
+            for m in members:
+                h = hist.get(m, {})
+                if d in h and pd in h and h[pd][0]:
+                    moves.append((h[d][0] / h[pd][0] - 1, h[d][1]))
+            if len(moves) >= len(members) * 0.6:
+                v = _sio_value(moves)
+                if v is not None:
+                    out[g][d] = v
+    return out
+
+
+def kr_sio(prev_entry: dict | None, series: dict, prev: dict) -> tuple[list[list], dict]:
+    """한국 SIO (코스피200·코스닥150·코스피대형주 근사). 처음엔 Yahoo 일봉으로 1년치를 채우고,
+    이후엔 장 마감 뒤 네이버 시가총액 순위의 종목별 등락률·거래량으로 하루씩 쌓는다.
+    며칠 빠지면 Yahoo 로 빈 날을 메운다."""
+    ranked = {m: _kr_ranked(m) for m in ("kospi", "kosdaq")}
+    suffix = {"kospi": ".KS", "kosdaq": ".KQ"}
+    groups = {g: [r["itemCode"] + suffix[m] for r in ranked[m][:n]] for g, m, n in S.SIO_GROUPS}
+    have = {g: dict((prev_entry or {}).get("groups", {}).get(g, [])) for g in groups}
+
+    kospi_days = sorted(d for d, _ in (series.get("kospi") or prev.get("kospi") or {}).get("data", []))
+    last = min((max(h) if h else "") for h in have.values())
+    recent = [d for d in kospi_days if d > last]
+    if not last or len(recent) > 1:      # 처음이거나 이틀 이상 빠짐 → Yahoo 로 보충
+        filled = _sio_from_yahoo(groups, "1y" if not last else "3mo")
+        for g in groups:
+            for d, v in filled[g].items():
+                have[g].setdefault(d, v)
+
+    # 오늘 값: 장 마감(15:30) 뒤에 수집한 네이버 체결 정보만 쓴다 (장중 값은 굳히지 않음)
+    for g, m, n in S.SIO_GROUPS:
+        rows = ranked[m][:n]
+        stamps = [r.get("localTradedAt") or "" for r in rows]
+        latest = max(stamps) if stamps else ""
+        if not latest or latest[11:16] < "15:30":
+            continue
+        day = latest[:10]
+        moves = [(_num(r.get("fluctuationsRatio")) / 100 if _num(r.get("fluctuationsRatio")) is not None else None,
+                  _num(r.get("accumulatedTradingVolume"))) for r in rows if (r.get("localTradedAt") or "")[:10] == day]
+        v = _sio_value(moves)
+        if v is not None:
+            have[g][day] = v
+
+    names = [g for g, _, _ in S.SIO_GROUPS]
+    if not have[names[0]]:
+        raise RuntimeError("SIO: 계산된 값이 없습니다")
+    out_groups = {g: sorted([d, v] for d, v in have[g].items())[-400:] for g in names}
+
+    def bottoms(rows):
+        res, last_os = [], None
+        for i, (d, v) in enumerate(rows):
+            if last_os is not None and i - last_os > S.SIO_BOTTOM_DAYS:
+                last_os = None
+            if v <= S.SIO_OVERSOLD:
+                last_os = i
+            elif last_os is not None and v >= S.SIO_OVERBOUGHT:
+                res.append(d); last_os = None
+        return res
+    bots = {g: bottoms(out_groups[g]) for g in names}
+
+    def state(v):
+        if v <= S.SIO_OVERSOLD: return "과매도"
+        if v >= S.SIO_STRONG_OVERBOUGHT: return "강한 과매수"
+        if v >= S.SIO_OVERBOUGHT: return "과매수"
+        return "중립"
+    main = out_groups[names[0]]
+    tags = [f"{g.replace('코스피대형주', '대형주')} {state(out_groups[g][-1][1])}" for g in names if out_groups[g]]
+    last_day = main[-1][0]
+    recent5 = [d for d, _ in main[-S.SIO_BOTTOM_DAYS:]]
+    bottom_now = [g for g in names if any(d in recent5 for d in bots[g])]
+    oversold_now = [g for g in names if out_groups[g] and out_groups[g][-1][1] <= S.SIO_OVERSOLD]
+    if bottom_now:
+        tags.append("바닥 통과: " + ", ".join(bottom_now))
+    note = (" · ".join(f"{g} {out_groups[g][-1][1]:+.0f}%" for g in names if out_groups[g])
+            + f" ({last_day}). −80% 이하 과매도, +80% 이상 과매수, 과매도 뒤 {S.SIO_BOTTOM_DAYS}거래일 안에 "
+              "+80% 이상이면 바닥 통과(아래 ▲, 코스피200 기준). 종목군은 시가총액 순위로 근사")
+    return main, {
+        "groups": out_groups, "bottoms": bots, "summary_tag": tags, "note": note,
+        "summary_state": "good" if bottom_now else ("bad" if oversold_now else "neutral"),
+    }
+
+
 def dedupe(rows: list[list]) -> list[list]:
     """날짜 오름차순 정렬 + 중복 날짜 제거."""
     seen, out = set(), []
@@ -2193,6 +2350,13 @@ def build_jobs(prev: dict, series: dict) -> dict:
         kind="dual", price_label="KOSPI", price_unit="", price_decimals=0,
         osc_legend="Fear & Greed Oscillator (KOSPI)", price_legend="KOSPI Index",
         fixed_period_months=6)
+
+    jobs["kr_sio"] = dict(
+        fn=(lambda: kr_sio(prev.get("kr_sio"), series, prev)),
+        name="한국 과매도·과매수 점검 (SIO)", unit="%", decimals=0, delta_unit="%p",
+        threshold=None, below_is=None, freq="daily", kind="multi",
+        source="네이버 시가총액 순위 · Yahoo Finance (커스텀 계산)", source_url="",
+        fixed_period_months=3, osc_ref=[S.SIO_OVERSOLD, S.SIO_OVERBOUGHT], osc_range=[-100, 100], note="")
 
     # Buy-the-Dip 점수 — 재료(지수·VKOSPI·F&G·신용잔고·시장 폭)가 모두 갱신된 뒤에 계산
     for key, mkt, label, src_txt in (
