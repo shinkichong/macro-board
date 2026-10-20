@@ -592,7 +592,7 @@ function multiChartSVG(lines, opt){
     const marks = (l.marks || []).filter(m => pos.has(m)).map(m =>
       `<path d="M${x(pos.get(m)).toFixed(1)},${(VB2.h - VB2.b - 2).toFixed(1)} l-3.5,-6 h7 z" fill="var(--good)"/>`).join("");
     return `<path d="${d}" fill="none" stroke="${l.color}" stroke-width="${l.width || 1.3}" stroke-linejoin="round"
-      opacity="${l.width > 1.5 ? 1 : .5}"/>${marks}`;
+      opacity="${l.width > 1.5 ? 1 : .75}"/>${marks}`;
   }).join("");
   let lx = VB2.l + 3;
   const legend = lines.map(l => {
@@ -661,7 +661,7 @@ function card(key, s){
 
   const c = s.kind === "multi"
     ? multiChartSVG(Object.entries(s.groups || {}).map(([name, rows], i) => ({
-        name, color: MULTI_COLORS[i % MULTI_COLORS.length], width: i === 0 ? 1.8 : 0.9,
+        name, color: MULTI_COLORS[i % MULTI_COLORS.length], width: i === 0 ? 1.8 : 1.2,
         pts: s.fixed_period_months ? lastMonths(rows, s.fixed_period_months) : slice(rows, STATE.years),
         marks: i === 0 ? (s.bottoms || {})[name] : [] })),
         {range: s.osc_range || [-100, 100], refs: s.osc_ref, label: s.name})

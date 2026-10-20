@@ -1941,7 +1941,7 @@ def _sio_from_yahoo(groups: dict[str, list[str]], range_: str) -> dict[str, dict
 
 
 def kr_sio(prev_entry: dict | None, series: dict, prev: dict) -> tuple[list[list], dict]:
-    """한국 SIO (코스피200·코스닥150·코스피대형주 근사). 처음엔 Yahoo 일봉으로 1년치를 채우고,
+    """한국 SIO (코스피200·코스닥150 근사). 처음엔 Yahoo 일봉으로 1년치를 채우고,
     이후엔 장 마감 뒤 네이버 시가총액 순위의 종목별 등락률·거래량으로 하루씩 쌓는다.
     며칠 빠지면 Yahoo 로 빈 날을 메운다."""
     ranked = {m: _kr_ranked(m) for m in ("kospi", "kosdaq")}
@@ -1995,7 +1995,7 @@ def kr_sio(prev_entry: dict | None, series: dict, prev: dict) -> tuple[list[list
         if v >= S.SIO_OVERBOUGHT: return "과매수"
         return "중립"
     main = out_groups[names[0]]
-    tags = [f"{g.replace('코스피대형주', '대형주')} {state(out_groups[g][-1][1])}" for g in names if out_groups[g]]
+    tags = [f"{g} {state(out_groups[g][-1][1])}" for g in names if out_groups[g]]
     last_day = main[-1][0]
     recent5 = [d for d, _ in main[-S.SIO_BOTTOM_DAYS:]]
     bottom_now = [g for g in names if any(d in recent5 for d in bots[g])]
