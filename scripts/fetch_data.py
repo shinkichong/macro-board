@@ -1850,6 +1850,10 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
                        + ([f"{vix_floor['label']} → 최소 {vix_floor['pct']:.0%}"] if vix_floor else []),
         "summary_state": "good" if pct > 0 else "neutral",
         "osc_ref": [buy_from, core_from],   # 1차 매수 · 본격 분할매수 시작점
+        # 운용안(있는 시장만): 지금 buy 에 들어가 있어야 할 비율과 리밸런싱 시점 여부
+        "dip_plan": (dict(S.DIP_PLAN[market], pct=pct, total_pct=pct * S.DIP_PLAN[market]["cash_w"],
+                          at_high=abs(detail["mdd"]) < 1e-9)
+                     if market in S.DIP_PLAN else None),
         "note": note,
     }
 

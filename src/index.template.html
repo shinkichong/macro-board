@@ -159,6 +159,7 @@ body{
 .dip-item[data-state="good"] .dip-stage{background:var(--good-soft); border-color:transparent; color:var(--good)}
 .dip-item .dip-pct{font-size:12.5px; color:var(--ink-2)}
 .dip-item .dip-pct b{color:var(--ink); font-weight:600}
+.dip-item .dip-plan{flex-basis:100%; margin-top:-4px; padding-top:6px; border-top:1px dashed var(--rule)}
 .dip-info{
   align-self:center; font:inherit; font-size:12px; font-weight:500; padding:8px 12px; cursor:pointer;
   border:1px solid var(--rule); border-radius:8px; background:var(--surface); color:var(--ink-2);
@@ -862,6 +863,13 @@ async function triggerUpdate(group, btn){
 const DIP_LABEL = {dip_spy: ["S&P 500", "SPY"], dip_qqq: ["Nasdaq-100", "QQQ"],
                    dip_kospi: ["코스피", "KOSPI"], dip_kosdaq: ["코스닥", "KOSDAQ"]};
 
+// 운용안 한 줄: 지금 buy 종목에 들어가 있어야 할 몫(전체 자산 대비)
+function dipPlanText(p){
+  const pc = v => `${Math.round(v * 100)}%`;
+  if(p.at_high) return `운용안 ${p.core} ${pc(p.core_w)}+현금 ${pc(p.cash_w)} · 1년 고점 — ${p.buy} 정리 후 ${pc(p.core_w)}:${pc(p.cash_w)} 복귀`;
+  return `운용안 ${p.buy} <b>전체의 ${pc(p.total_pct)}</b> <small>(현금 ${pc(p.cash_w)} 중 ${pc(p.pct)})</small>`;
+}
+
 function dipStrip(keys){
   const d = STATE.data;
   const items = keys.filter(k => k.startsWith("dip_") && d.series[k] && d.series[k].data && d.series[k].data.length);
@@ -884,7 +892,8 @@ function dipStrip(keys){
       <div class="dip-score">${fmt(last[1], 0)}<span>점</span></div>
       ${prev ? `<span class="delta" data-dir="${diff > 0 ? "up" : diff < 0 ? "down" : ""}">${diff >= 0 ? "+" : ""}${fmt(diff, 0)}점</span>` : ""}
       <span class="dip-stage">${stage}</span>
-      <span class="dip-pct">권장 <b>${pct}</b>${gateNote ? ` <small>(${gateNote})</small>` : ""}</span>`;
+      <span class="dip-pct">권장 <b>${pct}</b>${gateNote ? ` <small>(${gateNote})</small>` : ""}</span>
+      ${s.dip_plan ? `<span class="dip-pct dip-plan">${dipPlanText(s.dip_plan)}</span>` : ""}`;
     wrap.appendChild(el);
   }
   const btn = document.createElement("button");
@@ -953,6 +962,19 @@ function openDipDialog(keys, active){
         </tbody>
       </table>
       <p class="hint">누적투입률은 Buy-the-Dip 용 대기자금 중 지금까지 들어가 있어야 할 비율입니다. 이미 투입한 비율을 빼고 차액만 추가 매수합니다.</p>
+      ${s.dip_plan ? (p => `<h3>운용안 — ${p.core} ${pctTxt(p.core_w)} + 현금 ${pctTxt(p.cash_w)}, 하락 시 ${p.buy} 매수</h3>
+      <table>
+        <thead><tr><th>점수</th><th class="num">현금 중 ${p.buy}</th><th class="num">전체 자산 중 ${p.buy}</th></tr></thead>
+        <tbody>${r.stages.filter(st => st[2] > 0).map(st => {
+            const cur = st[2] === p.pct;   // MDD 조건·VIX 최소 투입까지 반영된 실제 누적투입률 기준
+            return `<tr class="${cur ? "cur" : ""}"><td>${st[0]}점 이상${cur ? " ◀ 현재" : ""}</td>
+                    <td class="num">${pctTxt(st[2])}</td><td class="num">${pctTxt(st[2] * p.cash_w)}</td></tr>`;
+          }).join("")}</tbody>
+      </table>
+      <p class="hint">평소에는 ${p.core} ${pctTxt(p.core_w)} · 현금(단기채) ${pctTxt(p.cash_w)}. 위 누적투입률(MDD 조건·VIX 최소 투입 포함)만큼 현금을 ${p.buy}로 바꾸고,
+        ${p.core}가 1년 고점을 회복하면 ${p.buy}를 모두 팔아 ${pctTxt(p.core_w)}:${pctTxt(p.cash_w)}로 되돌립니다.
+        지금은 <b>${p.at_high ? `1년 고점 — ${p.buy} 정리·리밸런싱 시점` : `${p.buy} 전체의 ${pctTxt(p.total_pct)}`}</b>.
+        2008·2012·2015년 시작 백테스트(양도세 22%·현금 연 2.5% 반영)에서 ${p.core} 100% 보유와 연 0.4%p 이내, 2008년형 폭락 시 총자산 최대 -51%.</p>`)(s.dip_plan) : ""}
       ${r.gate ? `<h3>MDD 조건 — 점수가 높아도 하락폭이 따라와야 비중을 올립니다</h3>
       <table>
         <thead><tr><th>1년 고점 대비 하락폭</th><th class="num">허용 최대 누적투입률</th></tr></thead>
