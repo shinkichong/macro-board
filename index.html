@@ -869,9 +869,9 @@ const planHold = p => p.hold.map(([k, w]) => `${k} ${planPc(w)}`).join(" + ");
 const planRatio = p => [...p.hold.map(h => planPc(h[1])), planPc(p.cash_w)].join(":");
 const planBase = p => (p.hold.find(h => h[0] === p.buy) || [0, 0])[1];   // 평소 들고 있는 buy 종목 비중
 function dipPlanText(p){
-  const pc = planPc, b = planBase(p);
-  if(p.at_high) return `운용안 ${planHold(p)} + 현금 ${pc(p.cash_w)} · 1년 고점 — ${planRatio(p)}로 리밸런싱`;
-  return `운용안 ${p.buy} <b>전체의 ${pc(b + p.total_pct)}</b> <small>(${b ? `기본 ${pc(b)} + ` : ""}하락 매수 ${pc(p.total_pct)} · 현금 ${pc(p.cash_w)} 중 ${pc(p.pct)})</small>`;
+  const pc = planPc, base = `운용안 기본 : ${planHold(p)} + 현금 ${pc(p.cash_w)}`;
+  if(p.at_high) return `${base} · 1년 고점 — ${planRatio(p)}로 리밸런싱`;
+  return `${base} <small>(현금 ${pc(p.cash_w)} 중 <b>${pc(p.pct)}</b>)</small>`;
 }
 
 function dipStrip(keys){
