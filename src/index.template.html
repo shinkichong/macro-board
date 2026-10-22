@@ -702,7 +702,7 @@ function card(key, s){
       ${delta ? `<span class="delta" data-dir="${dir}">${delta}</span>` : ""}
       ${[].concat(word || []).map(w => `<span class="tag" title="${w}">${w}</span>`).join("")}
     </div>
-    ${s.note ? `<p class="note">${s.note}</p>` : ""}
+    ${s.note ? `<p class="note"${s.note_detail ? ` title="${s.note_detail}"` : ""}>${s.note}</p>` : ""}
     <div class="chart">${c.markup}</div>
     <footer>
       <span>${s.source}${s.ref_url

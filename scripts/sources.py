@@ -337,6 +337,14 @@ SIO_GROUPS = [("코스피200", "kospi", 200), ("코스닥150", "kosdaq", 150)]
 SIO_OVERSOLD = -80          # 이하면 과매도 (종목군 전체가 거래량을 실어 한꺼번에 팔린 날)
 SIO_OVERBOUGHT = 80         # 이상이면 과매수
 SIO_STRONG_OVERBOUGHT = 90
+# 코스피 과열 점검 (표시 전용 — 매도 규칙과 무관). 켜진 조건 수로 단계를 나눈다.
+# 2008~2026 코스피 1년 뒤 평균: 0~1개 +12%, 2개 +3%, 3개 -5%, 4개 -1%, 5개 -8%(표본 7일).
+# 4개 이상은 2009·2020~21·2025~26 상승 후반부에만 나왔지만, 처음 4개가 뜬 뒤에도 +17~131% 더 올랐다.
+# 신용잔고는 고점이 지난 뒤에도 1년 증가율이 높게 남아서 '1년 최고치 근처'일 때만 센다.
+KOSPI_HEAT = dict(up1y=.70, rsi_w=80, breadth200=.90, gap200=.25, credit_yoy=.40, credit_near_high=-.05)
+KOSPI_HEAT_LEVELS = [(0, "정상", "+12%"), (2, "주의", "+3%"), (3, "과열 초입", "-5%"), (4, "과열", "-1%"),
+                     (5, "극단 과열", "-8%")]
+KOSPI_HEAT_WARN = 2   # 이 개수부터 카드 테두리를 경고색으로
 SIO_BOTTOM_DAYS = 5         # 과매도 뒤 이 거래일 안에 과매수로 돌아서면 '바닥 통과'
 
 # ─────────────────────────────────────────────────────────────
@@ -349,7 +357,7 @@ LAYOUT = [
         "ust10y", "rate_hy_combo", "yc_10y2y",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
-    dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "dip_kospi", "dip_kosdaq", "vkospi",
+    dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "dip_kospi", "dip_kosdaq", "kospi_heat", "vkospi",
                                   "kospi_drawdown", "kosdaq_drawdown", "kospi_rsi",
                                   "kospi_credit_combo", "kosdaq_credit_combo", "kr_sio", "kospi200_pcr", "kr_exports_yoy"]),
 ]

@@ -1854,7 +1854,8 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
         "dip_plan": (dict(S.DIP_PLAN[market], pct=pct, total_pct=pct * S.DIP_PLAN[market]["cash_w"],
                           at_high=abs(detail["mdd"]) < 1e-9)
                      if market in S.DIP_PLAN else None),
-        "note": note,
+        "note": f"패닉 {detail['panic']:.0f}/80 · 반전 {S.DIP_REVERSAL_PTS * sum(rv.values())}/20 · 1년 고점 대비 {detail['mdd']:.1%}",
+        "note_detail": note,   # 화면에서 설명 줄에 마우스를 올리면 보이는 전체 근거
     }
 
 
@@ -1942,6 +1943,71 @@ def _sio_from_yahoo(groups: dict[str, list[str]], range_: str) -> dict[str, dict
                 if v is not None:
                     out[g][d] = v
     return out
+
+
+def kospi_heat(series: dict, prev: dict) -> tuple[list[list], dict]:
+    """코스피 과열 점검: 다섯 조건 중 몇 개가 켜졌는지(0~5). 표시 전용."""
+    def src(k):
+        return series.get(k) or prev.get(k) or {}
+    px = src("kospi").get("data") or []
+    if len(px) < 400:
+        raise RuntimeError("코스피 과열 점검: 지수 데이터가 부족합니다")
+    T = S.KOSPI_HEAT
+    days, vals = [d for d, _ in px], [v for _, v in px]
+    rsi_w = _weekly_rsi_asof(px)
+    br = _ffill(src("breadth_kospi").get("data") or [], days)
+    credit_rows = sorted(src("kospi_credit").get("data") or [])
+    cr = _ffill(credit_rows, days)
+    start = (date.fromisoformat(days[-1]) - timedelta(days=400)).isoformat()
+    out, cond = [], None
+    for i, d in enumerate(days):
+        if d < start or i < 250:
+            continue
+        lo = min(vals[i - 249:i + 1])
+        ma200 = sum(vals[i - 199:i + 1]) / 200
+        yago = (date.fromisoformat(d) - timedelta(days=365)).isoformat()
+        c_now = cr.get(d)
+        c_old = next((v for dd, v in reversed(credit_rows) if dd <= yago), None)
+        c_hi = max((v for dd, v in credit_rows if yago < dd <= d), default=None)
+        vals_now = dict(up1y=vals[i] / lo - 1, rsi_w=rsi_w[i], breadth200=br.get(d), gap200=vals[i] / ma200 - 1,
+                        credit_yoy=c_now / c_old - 1 if c_now and c_old else None,
+                        credit_hi=c_now / c_hi - 1 if c_now and c_hi else None)
+        cond = dict(
+            up1y=vals_now["up1y"] >= T["up1y"],
+            rsi_w=vals_now["rsi_w"] is not None and vals_now["rsi_w"] >= T["rsi_w"],
+            breadth200=vals_now["breadth200"] is not None and vals_now["breadth200"] >= T["breadth200"],
+            gap200=vals_now["gap200"] >= T["gap200"],
+            credit=(vals_now["credit_yoy"] is not None and vals_now["credit_yoy"] >= T["credit_yoy"]
+                    and vals_now["credit_hi"] is not None and vals_now["credit_hi"] >= T["credit_near_high"]),
+        )
+        out.append([d, sum(cond.values())])
+    if not out:
+        raise RuntimeError("코스피 과열 점검: 계산 가능한 날짜가 없습니다")
+    n = out[-1][1]
+    level = [x for x in S.KOSPI_HEAT_LEVELS if n >= x[0]][-1]
+    v, mark = vals_now, (lambda k: "✓" if cond[k] else "○")
+    L = S.KOSPI_HEAT_LEVELS   # (최소 개수, 이름, 1년 뒤 평균) → '0~1개' 같은 범위 문구
+    levels = [((f"{lo}" if (L[i + 1][0] if i + 1 < len(L) else 6) - 1 == lo
+                else f"{lo}~{(L[i + 1][0] if i + 1 < len(L) else 6) - 1}") + "개", nm, r)
+              for i, (lo, nm, r) in enumerate(L)]
+    pc = lambda x: "-" if x is None else f"{x:+.0%}"
+    b_txt = "-" if v["breadth200"] is None else f"{v['breadth200']:.0%}"
+    note = (f"{mark('up1y')} 1년 저점 대비 {pc(v['up1y'])}(기준 +{T['up1y']:.0%}) · "
+            f"{mark('rsi_w')} 주봉 RSI {v['rsi_w']:.0f}({T['rsi_w']}) · "
+            f"{mark('breadth200')} 200일선 위 종목 {b_txt}({T['breadth200']:.0%}) · "
+            f"{mark('gap200')} 200일선 이격 {pc(v['gap200'])}(+{T['gap200']:.0%}) · "
+            f"{mark('credit')} 신용잔고 1년 {pc(v['credit_yoy'])}·최고 대비 {pc(v['credit_hi'])}(+{T['credit_yoy']:.0%}·{T['credit_near_high']:.0%} 이내). "
+            f"과거 1년 뒤 평균: " + " / ".join(f"{nm}({rng}) {r}" for rng, nm, r in levels) + ". 매도 신호 아님")
+    names = dict(up1y="1년 급등", rsi_w="주봉 RSI", breadth200="시장 폭", gap200="200일선 이격", credit="신용잔고")
+    met = [names[k] for k, on in cond.items() if on]
+    short = (f"충족: {', '.join(met)}" if met else "충족 조건 없음") + " · 4개 이상 과열"
+    return out, {
+        "price_data": [[d, x] for d, x in px if d >= out[0][0]],
+        "summary_tag": [level[1], f"조건 {n}/5"],
+        "summary_state": "bad" if n >= S.KOSPI_HEAT_WARN else "neutral",
+        "note": short,
+        "note_detail": note,
+    }
 
 
 def kr_sio(prev_entry: dict | None, series: dict, prev: dict) -> tuple[list[list], dict]:
@@ -2359,6 +2425,15 @@ def build_jobs(prev: dict, series: dict) -> dict:
         threshold=None, below_is=None, freq="daily", kind="multi",
         source="네이버 시가총액 순위 · Yahoo Finance (커스텀 계산)", source_url="",
         fixed_days=15, osc_ref=[S.SIO_OVERSOLD, S.SIO_OVERBOUGHT], osc_range=[-100, 100], note="")
+
+    jobs["kospi_heat"] = dict(
+        fn=(lambda: kospi_heat(series, prev)),
+        name="코스피 과열 점검", unit="개", decimals=0, delta_unit="개",
+        threshold=None, below_is=None, osc_ref=[2, 4], osc_range=[0, 5], freq="daily",
+        source="KRX · 금융투자협회 · 네이버 (커스텀 계산)", source_url="",
+        kind="dual", price_label="코스피", price_unit="", price_decimals=0,
+        osc_legend="과열 조건 수 (0~5)", price_legend="코스피",
+        osc_color="var(--bad)", osc_width=2.0, fixed_period_months=12, note="")
 
     # Buy-the-Dip 점수 — 재료(지수·VKOSPI·F&G·신용잔고·시장 폭)가 모두 갱신된 뒤에 계산
     for key, mkt, label, src_txt in (
