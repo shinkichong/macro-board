@@ -1840,6 +1840,9 @@ def dip_score(series: dict, prev: dict, market: str) -> tuple[list[list], dict]:
                if v2 and len(detail["extra"]) == 2 else ""))
     breakdown, rules = _dip_explain(market, cfg, detail, vol_table, credit_table, senti_name, stages,
                                     rsi_w_table, b50_table, gate, W, b200_table, v2)
+    # 화면 팝업 '◀ 현재' 표시용: MDD 조건·VIX 최소 투입까지 반영된 실제 단계
+    rules["applied"] = dict(stage=stage, pct=pct, gated=gated,
+                            vix_floor=[vix_floor["label"], vix_floor["pct"]] if vix_floor else None)
     return out, {
         "price_data": [[d, v] for d, v in px if d >= out[0][0]],
         "reversal_data": rev_hist,   # 날짜별 충족된 반전 신호 개수(0~4)

@@ -927,7 +927,12 @@ function openDipDialog(keys, active){
   const panicRows = bd.filter(x => !x.reversal), revRows = bd.filter(x => x.reversal);
   const panicSum = panicRows.reduce((a, x) => a + x.points, 0);
   const revSum = revRows.reduce((a, x) => a + x.points, 0);
-  const curStage = r.stages.filter(st => score >= st[0]).pop();
+  const scoreStage = r.stages.filter(st => score >= st[0]).pop();
+  // '◀ 현재'는 MDD 조건·VIX 최소 투입까지 반영된 실제 단계에 붙인다 (예전 데이터는 점수 구간으로).
+  const ap = r.applied;
+  const curStage = ap ? r.stages.find(st => st[1] === ap.stage && st[2] === ap.pct) || scoreStage : scoreStage;
+  const adjusted = curStage !== scoreStage;
+  const adjWhy = !ap ? "" : ap.vix_floor ? `VIX 최소 투입(${ap.vix_floor[0]})` : ap.gated ? `MDD 조건(현재 하락폭 ${(r.mdd_now * 100).toFixed(1)}%)` : "";
 
   dlg.innerHTML = `
     <div class="dlg-head">
@@ -960,11 +965,13 @@ function openDipDialog(keys, active){
           ${r.stages.map((st, i) => {
             const hi = r.stages[i + 1] ? r.stages[i + 1][0] - 1 : 100;
             const cur = curStage && st[0] === curStage[0];
-            return `<tr class="${cur ? "cur" : ""}"><td>${st[0]}${hi > st[0] ? "~" + hi : ""}점${cur ? " ◀ 현재" : ""}</td>
+            const byScore = adjusted && scoreStage && st[0] === scoreStage[0];
+            return `<tr class="${cur ? "cur" : ""}"><td>${st[0]}${hi > st[0] ? "~" + hi : ""}점${cur ? " ◀ 현재" : byScore ? ` · 점수 ${score}점` : ""}</td>
                     <td>${st[1]}</td><td class="num">${pctTxt(st[2])}</td></tr>`;
           }).join("")}
         </tbody>
       </table>
+      ${adjusted ? `<p class="hint"><b>점수 ${score}점은 '${scoreStage[1]}'(${pctTxt(scoreStage[2])}) 구간이지만, ${adjWhy}이 적용되어 지금 권장 누적투입률은 ${pctTxt(ap.pct)}입니다.</b></p>` : ""}
       <p class="hint">누적투입률은 Buy-the-Dip 용 대기자금 중 지금까지 들어가 있어야 할 비율입니다. 이미 투입한 비율을 빼고 차액만 추가 매수합니다.</p>
       ${s.dip_plan && s.dip_plan.hold ? (p => `<h3>운용안 — ${planHold(p)} + 현금 ${pctTxt(p.cash_w)}, 하락 시 현금으로 ${p.buy} 매수</h3>
       <table>
@@ -992,7 +999,10 @@ function openDipDialog(keys, active){
       ${r.vix_floor ? `<h3>VIX 급등 최소 투입 — 점수와 상관없이 적용</h3>
       <table>
         <thead><tr><th>조건</th><th class="num">최소 누적투입률</th></tr></thead>
-        <tbody>${r.vix_floor.map(([label, p]) => `<tr><td>${label}</td><td class="num">${pctTxt(p)}</td></tr>`).join("")}</tbody>
+        <tbody>${r.vix_floor.map(([label, p]) => {
+            const cur = ap && ap.vix_floor && ap.vix_floor[0] === label;
+            return `<tr class="${cur ? "cur" : ""}"><td>${label}${cur ? " ◀ 현재 적용" : ""}</td><td class="num">${pctTxt(p)}</td></tr>`;
+          }).join("")}</tbody>
       </table>
       <p class="hint">${r.vix_now ? `현재 VIX ${fmt(r.vix_now[0], 1)} · 50일 평균의 ${fmt(r.vix_now[1] || 0, 2)}배. ` : ""}하락폭은 작아도 공포가 갑자기 치솟는 급락(2016 브렉시트, 2019년 8월, 2024년 8월 등)을 놓치지 않기 위한 규칙입니다.</p>` : ""}
 
