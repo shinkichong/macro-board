@@ -2370,6 +2370,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
         kind="dual", price_label="TGA 잔고", price_unit="$B", price_decimals=0,
         osc_legend="SOFR (%)", osc2_legend="IORB (%)", price_legend="TGA 잔고 ($B)",
         osc_color="#2f6fd0", osc2_color="#d97706", price_color="#8a8f98", osc2_warn=True,
+        fixed_period_months=12,
         note="빨간 음영 = SOFR 이 IORB(지준 이자율) 위 — 은행 지준이 빠듯하다는 경고 신호. "
              "TGA 가 늘면 그만큼 시중 유동성이 흡수된다.",
         card_url="https://fred.stlouisfed.org/series/SOFR")
