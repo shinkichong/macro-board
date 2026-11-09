@@ -361,8 +361,8 @@ SIO_BOTTOM_DAYS = 5         # 과매도 뒤 이 거래일 안에 과매수로 �
 LAYOUT = [
     dict(group="미국 시장", keys=[
         "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc",
-        "spx_drawdown", "ndx_drawdown", "ndx_rsi", "dip_qqq", "dip_spy", "vix", "liquidity_combo",
-        "ust10y", "rate_hy_combo", "yc_10y2y",
+        "spx_drawdown", "ndx_drawdown", "ndx_rsi", "dip_qqq", "dip_spy", "vix",
+        "ust10y", "rate_hy_combo", "yc_10y2y", "liquidity_combo",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "dip_kospi", "dip_kosdaq", "kospi_heat", "vkospi",
