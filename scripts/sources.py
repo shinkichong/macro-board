@@ -330,6 +330,11 @@ NDX_LIST_URL = "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
 # 유동성 카드: SOFR·IORB + TGA 잔고. IORB 는 2021-07-29 부터 있는 금리라 그 뒤 첫 해부터.
 # ─────────────────────────────────────────────────────────────
 LIQ_START = "2022-01-01"
+
+# CTA 포지션 추정: 추세 기간(거래일, 약 1·3·6·12개월)과 목표 변동성(연율).
+# 2008~2026 나스닥 종합으로 확인: 2022 약세장 최저 -51, 2025-04 관세 급락 -32, 2024-08 엔캐리 -2.
+CTA_LOOKBACKS = (20, 60, 120, 250)
+CTA_TARGET_VOL = .15
 TGA_DTS_URL = ("https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/"
                "accounting/dts/operating_cash_balance")
 LIQ_SPREAD_DANGER_BP = 10   # SOFR 가 IORB 보다 0bp 초과면 경고, 이만큼(bp) 이상이면 '위험' 문구
@@ -361,7 +366,7 @@ SIO_BOTTOM_DAYS = 5         # 과매도 뒤 이 거래일 안에 과매수로 �
 LAYOUT = [
     dict(group="미국 시장", keys=[
         "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc",
-        "spx_drawdown", "ndx_drawdown", "ndx_rsi", "dip_qqq", "dip_spy", "vix",
+        "spx_drawdown", "ndx_drawdown", "ndx_rsi", "ndx_cta", "dip_qqq", "dip_spy", "vix",
         "ust10y", "rate_hy_combo", "yc_10y2y", "liquidity_combo",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),

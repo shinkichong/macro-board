@@ -20,6 +20,7 @@ import csv
 import html
 import io
 import json
+import math
 import os
 import re
 import ssl
@@ -1448,6 +1449,48 @@ def index_rsi(series: dict, prev: dict, index_key: str, label: str) -> tuple[lis
     return out, {"price_data": [[d, x] for d, x in rows if d >= out[0][0]], "summary_tag": [word]}
 
 
+def cta_position(series: dict, prev: dict, index_key: str, label: str) -> tuple[list[list], dict]:
+    """CTA(추세추종 펀드) 포지션 추정치(-100 최대 숏 ~ +100 최대 롱).
+
+    실제 CTA 포지션은 공개되지 않아 IB 들이 쓰는 표준 복제 방식으로 추정한다.
+    기간별(S.CTA_LOOKBACKS) 추세 강도 = 로그수익률 ÷ (60일 일변동성 × √기간) 을
+    ±1 로 자른 뒤 평균하고, 실현변동성(20·60일 중 큰 쪽)이 목표(S.CTA_TARGET_VOL)를
+    넘으면 그 비율만큼 줄인다 — 변동성이 커지면 같은 추세라도 포지션을 줄이는 CTA 의
+    위험 관리와 같다. 1주(5거래일) 변화가 크게 음수면 CTA 매도 물량이 나오는 중이다."""
+    rows = series.get(index_key, {}).get("data") or prev.get(index_key, {}).get("data") or []
+    L_max = max(S.CTA_LOOKBACKS)
+    if len(rows) < L_max + 300:
+        raise RuntimeError(f"{label}: 데이터가 부족합니다")
+    rows = rows[-(L_max + 600):]
+    px = [v for _, v in rows]
+    lr = [0.0] + [math.log(px[i] / px[i - 1]) for i in range(1, len(px))]
+
+    def sd(xs):
+        m = sum(xs) / len(xs)
+        return (sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) ** .5
+
+    out, trend_now = [], 0.0
+    for i in range(L_max, len(px)):
+        s60, s20 = sd(lr[i - 59:i + 1]), sd(lr[i - 19:i + 1])
+        sig = [max(-1.0, min(1.0, math.log(px[i] / px[i - L]) / (s60 * L ** .5))) for L in S.CTA_LOOKBACKS]
+        trend_now = sum(sig) / len(sig)
+        vol = max(s20, s60) * 252 ** .5
+        out.append([rows[i][0], round(100 * trend_now * min(1.0, S.CTA_TARGET_VOL / vol), 1)])
+        vol_now = vol
+    out = out[-500:]
+    v, wk = out[-1][1], out[-1][1] - out[-6][1]
+    word = ("강한 롱" if v >= 50 else "롱" if v >= 10 else "중립" if v > -10
+            else "숏" if v > -50 else "강한 숏")
+    flow = "매수 유입" if wk >= 15 else "매도 진행" if wk <= -15 else "횡보"
+    return out, {
+        "price_data": [[d, x] for d, x in rows if d >= out[0][0]],
+        "summary_tag": [word, f"1주 {wk:+.0f}p {flow}"],
+        "summary_state": "bad" if v <= -10 or wk <= -30 else "neutral",
+        "note": f"1개월 {v - out[-22][1]:+.0f}p · 추세 신호 {100 * trend_now:+.0f} · 실현변동성 {vol_now:.0%}(목표 {S.CTA_TARGET_VOL:.0%} 넘는 만큼 축소). "
+                "공개 데이터로 만든 추정치 — 0 아래로 내려가면 CTA 가 숏으로 돌아선 것",
+    }
+
+
 def _wilder_rsi(vals: list[float], period: int = RSI_PERIOD) -> list[float | None]:
     """Wilder 평활 RSI. 앞쪽 period 개는 None."""
     out: list[float | None] = [None] * len(vals)
@@ -2469,6 +2512,15 @@ def build_jobs(prev: dict, series: dict) -> dict:
             osc_legend="RSI (14)", price_legend=f"{idx_name}지수",
             osc_color="var(--ink)", osc_width=1.8, fixed_period_months=12,
             note="70 이상 과매수, 30 이하 과매도")
+
+    jobs["ndx_cta"] = dict(
+        fn=(lambda: cta_position(series, prev, "ndx", "나스닥 CTA 포지션")),
+        name="나스닥 CTA 포지션 추정 · 나스닥지수", unit="", decimals=0, delta_unit="p",
+        threshold=None, below_is=None, osc_ref=[0], osc_range=[-100, 100],
+        freq="daily", source="Yahoo Finance / Stooq (추세추종 복제 모델)", source_url="",
+        kind="dual", price_label="나스닥지수", price_unit="", price_decimals=0,
+        osc_legend="CTA 포지션 (-100 숏 ~ +100 롱)", price_legend="나스닥지수",
+        osc_color="var(--ink)", osc_width=1.8, fixed_period_months=12, note="")
 
     # Buy-the-Dip 점수 재료 (LAYOUT 에는 없는 내부 전용 시리즈)
     for key, sym in (("spy", "SPY"), ("qqq", "QQQ")):
