@@ -1477,7 +1477,7 @@ def cta_position(series: dict, prev: dict, index_key: str, label: str) -> tuple[
         vol = max(s20, s60) * 252 ** .5
         out.append([rows[i][0], round(100 * trend_now * min(1.0, S.CTA_TARGET_VOL / vol), 1)])
         vol_now = vol
-    out = out[-500:]
+    out = out[-520:]   # 화면 2년(약 504거래일)을 채우도록 조금 여유 있게 남긴다
     v, wk = out[-1][1], out[-1][1] - out[-6][1]
     word = ("강한 롱" if v >= 50 else "롱" if v >= 10 else "중립" if v > -10
             else "숏" if v > -50 else "강한 숏")
