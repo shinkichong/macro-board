@@ -473,7 +473,10 @@ function dualChartSVG(oscPts, pricePts, opt){
   // 기준선(oscRef)이 있으면 그 값도 축 범위에 넣어 항상 보이게 한다.
   // oscRef 는 값 하나 또는 여러 개(예: RSI 30/70). oscRange 를 주면 축을 그 범위로 고정한다.
   const refs = opt.oscRef == null ? [] : [].concat(opt.oscRef);
-  const oVals = opt.oscRange ? [...opt.oscRange] : oscPts.map(p => p[1]).concat(refs);
+  // osc2: 왼쪽 축을 함께 쓰는 보조선(예: 유동성 카드의 IORB). 축 범위에도 넣는다.
+  const osc2Pts = (opt.osc2 || []).filter(p => pos.has(p[0]));
+  const osc2Color = opt.osc2Color || "#d97706";
+  const oVals = opt.oscRange ? [...opt.oscRange] : oscPts.map(p => p[1]).concat(refs, osc2Pts.map(p => p[1]));
   // 범례를 아래에 두는 카드는 선이 바닥에 닿아 범례와 겹치지 않게 아래로 여백을 둔다.
   if(opt.legendBottom){
     const lo = Math.min(...oVals), hi = Math.max(...oVals);
@@ -495,6 +498,30 @@ function dualChartSVG(oscPts, pricePts, opt){
     `${i ? "L" : "M"}${x(pos.get(p[0])).toFixed(1)},${yO(p[1]).toFixed(1)}`).join("");
   const priceLine = pricePts.map((p, i) =>
     `${i ? "L" : "M"}${x(pos.get(p[0])).toFixed(1)},${yP(p[1]).toFixed(1)}`).join("");
+  const osc2Line = osc2Pts.map((p, i) =>
+    `${i ? "L" : "M"}${x(pos.get(p[0])).toFixed(1)},${yO(p[1]).toFixed(1)}`).join("");
+  // osc2Warn: 주선이 보조선 위로 올라간 구간(예: SOFR > IORB)을 경고색으로 칠한다.
+  let warnFill = "";
+  if(opt.osc2Warn && osc2Pts.length){
+    const o2 = new Map(osc2Pts);
+    const runs = [];
+    let run = [];
+    oscPts.forEach(p => {
+      const b = o2.get(p[0]);
+      if(b !== undefined && p[1] > b) run.push([p[0], p[1], b]);
+      else if(run.length){ runs.push(run); run = []; }
+    });
+    if(run.length) runs.push(run);
+    warnFill = runs.map(r => {
+      // 하루짜리 구간도 보이게 앞뒤로 반 칸씩 넓힌다
+      const half = (VB2.w - VB2.l - VB2.r) / Math.max(1, n - 1) / 2;
+      const xs = r.map(q => x(pos.get(q[0])));
+      xs[0] -= half; xs[xs.length - 1] += half;
+      const top = r.map((q, i) => `${xs[i].toFixed(1)},${yO(q[1]).toFixed(1)}`);
+      const bot = r.map((q, i) => `${xs[i].toFixed(1)},${yO(q[2]).toFixed(1)}`).reverse();
+      return `<polygon points="${top.concat(bot).join(" ")}" fill="var(--bad)" opacity=".45"/>`;
+    }).join("");
+  }
 
   const oTicks = oScale.ticks;
   const pTicks = pScale.ticks;
@@ -548,6 +575,7 @@ function dualChartSVG(oscPts, pricePts, opt){
                   fill="${color}">${label}</text>`;
   }
   const legend = legendBox(VB2.l + 3, oscColor, opt.oscLegend, "start")
+               + (osc2Pts.length ? legendBox(VB2.l + 3 + opt.oscLegend.length * 4.1 + 23, osc2Color, opt.osc2Legend, "start") : "")
                + (hasPrice ? legendBox(VB2.w - VB2.r - 3, priceColor, opt.priceLegend, "end") : "");
 
   return {
@@ -557,6 +585,8 @@ function dualChartSVG(oscPts, pricePts, opt){
             fill="none" stroke="var(--rule)" stroke-width="1"/>
       <path d="${priceLine}" fill="none" stroke="${priceColor}" stroke-width="1.4"
             stroke-linejoin="round" stroke-linecap="round"/>
+      ${warnFill}${osc2Line ? `<path d="${osc2Line}" fill="none" stroke="${osc2Color}" stroke-width="1.2"
+            stroke-dasharray="4 2.5" stroke-linejoin="round"/>` : ""}
       <path d="${oscLine}" fill="none" stroke="${oscColor}" stroke-width="${oscWidth}"
             stroke-linejoin="round" stroke-linecap="round"/>
       ${refLine}${oLabels}${pLabels}${xLabels}${legend}
@@ -679,6 +709,8 @@ function card(key, s){
     : isDual
     ? dualChartSVG(pts, pricePts, {decimals:s.decimals, priceDecimals:s.price_decimals, label:s.name,
         oscLegend: s.osc_legend, priceLegend: s.price_legend,
+        osc2: s.osc2_data ? s.osc2_data.filter(p => p[0] >= pts[0][0]) : null,
+        osc2Legend: s.osc2_legend, osc2Color: s.osc2_color, osc2Warn: s.osc2_warn,
         oscColor: s.osc_color, priceColor: s.price_color, oscWidth: s.osc_width,
         legendBottom: s.legend_bottom, oscRef: s.osc_ref, oscRange: s.osc_range})
     : chartSVG(pts, {threshold:s.threshold, belowIs:s.below_is,

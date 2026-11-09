@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
 import html
 import io
@@ -682,6 +683,88 @@ def real_policy_rate() -> list[list]:
     if len(out) < 12:
         raise RuntimeError(f"실질 정책금리: 계산 가능한 달이 {len(out)}개뿐 — 계산 불가")
     return out
+
+
+def _merge_recent(prev_rows: list[list] | None, start: str, fetch) -> list[list]:
+    """증분 갱신 공통: 저장된 값의 마지막 날짜 2주 전부터만 새로 받아 합친다."""
+    have = {d: v for d, v in (prev_rows or [])}
+    since = start
+    if have:
+        since = max(start, (date.fromisoformat(max(have)) - timedelta(days=14)).isoformat())
+    have.update({d: v for d, v in fetch(since)})
+    return dedupe([[d, v] for d, v in have.items()])
+
+
+def _sofr(since: str) -> list[list]:
+    """SOFR — 뉴욕연은 공식 API (FRED 가 클라우드 IP 에서 자주 막혀 원천을 직접 쓴다)."""
+    try:
+        j = get("https://markets.newyorkfed.org/api/rates/secured/sofr/search.json",
+                params={"startDate": since, "endDate": date.today().isoformat()}).json()
+        rows = [[r["effectiveDate"], float(r["percentRate"])] for r in j.get("refRates", [])]
+        if rows:
+            return rows
+    except (requests.RequestException, ValueError, KeyError) as e:
+        print(f"    뉴욕연은 SOFR 실패({type(e).__name__}) → FRED", flush=True)
+    return fred("SOFR", since)
+
+
+def _tga(since: str) -> list[list]:
+    """TGA 일별 마감 잔고(10억 달러) — 재무부 일일 국고보고서(DTS). 실패하면 FRED 주간치(WTREGEN)."""
+    try:
+        j = get(S.TGA_DTS_URL, params={
+            "fields": "record_date,account_type,open_today_bal",
+            "filter": f"record_date:gte:{since},account_type:eq:Treasury General Account (TGA) Closing Balance",
+            "sort": "record_date", "page[size]": 10000}).json()
+        rows = [[r["record_date"], round(float(r["open_today_bal"]) / 1000, 1)]
+                for r in j.get("data", []) if r.get("open_today_bal") not in (None, "null", "")]
+        if rows:
+            return rows
+    except (requests.RequestException, ValueError, KeyError) as e:
+        print(f"    재무부 DTS 실패({type(e).__name__}) → FRED WTREGEN", flush=True)
+    return [[d, round(v / 1000, 1)] for d, v in fred("WTREGEN", since)]
+
+
+def liquidity_combo(prev: dict | None = None) -> tuple[list[list], dict]:
+    """유동성 카드: SOFR·IORB(왼쪽 축, %) + TGA 잔고(오른쪽 축, 10억 달러).
+
+    SOFR 이 IORB(지급준비금 이자율) 위로 올라서면 은행 지준이 빠듯하다는 신호다
+    (2019년 9월 레포 금리 급등 때의 패턴). TGA 가 늘면 그만큼 시중 지준이 빠진다.
+    IORB 는 2021-07-29 부터 있는 정책금리라 FOMC 때만 바뀐다 — SOFR 날짜에 맞춰
+    직전 값을 이어 쓰고, FRED 가 막히면 저장해 둔 값으로 이어 간다.
+    """
+    prev = prev or {}
+    sofr = _merge_recent(prev.get("data"), S.LIQ_START, _sofr)
+    try:
+        iorb = fred("IORB", S.LIQ_START, prev_data=prev.get("osc2_data"))
+    except Exception as e:
+        iorb = prev.get("osc2_data") or []
+        print(f"    IORB 실패({e}) → 저장된 값 {len(iorb)}개", flush=True)
+        if not iorb:
+            raise
+    tga = _merge_recent(prev.get("price_data"), S.LIQ_START, _tga)
+    if len(sofr) < 30 or len(tga) < 30:
+        raise RuntimeError("유동성(SOFR·TGA): 데이터가 부족합니다")
+
+    idays, ivals = [d for d, _ in iorb], [v for _, v in iorb]
+    iorb_on = []
+    for d, _ in sofr:
+        k = bisect.bisect_right(idays, d)
+        if k:
+            iorb_on.append([d, ivals[k - 1]])
+    spread_bp = round((sofr[-1][1] - iorb_on[-1][1]) * 100)
+    t_now = tga[-1][1]
+    mo_ago = (date.fromisoformat(tga[-1][0]) - timedelta(days=30)).isoformat()
+    t_mo = [v for d, v in tga if d <= mo_ago][-1]
+    # SOFR > IORB 면 경고(카드 경고색), 크게 벌어지면 2019년 9월식 지준 부족 위험
+    warn = ("⚠ 위험" if spread_bp >= S.LIQ_SPREAD_DANGER_BP
+            else "⚠ SOFR>IORB" if spread_bp > 0 else "SOFR≤IORB")
+    tag = [f"{warn} {spread_bp:+d}bp", f"TGA ${t_now:,.0f}B"]
+    state = "bad" if spread_bp > 0 else "good"
+    note = (f"IORB {iorb_on[-1][1]:.2f}% · TGA 1개월 {t_now - t_mo:+,.0f}B. "
+            "빨간 음영 = SOFR 이 IORB(지준 이자율) 위 — 은행 지준이 빠듯하다는 경고 신호. "
+            "TGA 가 늘면 그만큼 시중 유동성이 흡수된다.")
+    return sofr, {"osc2_data": iorb_on, "price_data": tga, "price_last_date": tga[-1][0],
+                  "summary_tag": tag, "summary_state": state, "note": note}
 
 
 def _ecos_series(stat_code: str, item_code: str, start: str) -> list[list]:
@@ -2234,6 +2317,19 @@ def build_jobs(prev: dict, series: dict) -> dict:
         kind="dual", price_label="NASDAQ", price_unit="", price_decimals=0,
         osc_legend="Fear & Greed Oscillator (NASDAQ)", price_legend="NASDAQ Index",
         fixed_period_months=6)
+
+    jobs["liquidity_combo"] = dict(
+        fn=(lambda: liquidity_combo(prev.get("liquidity_combo"))),
+        name="달러 유동성 (SOFR · IORB · TGA 잔고)", unit="%", decimals=2, delta_unit="%p",
+        threshold=None, below_is=None, freq="daily",
+        source="뉴욕연은 · FRED · 미 재무부 DTS",
+        source_url="https://www.newyorkfed.org/markets/reference-rates/sofr",
+        kind="dual", price_label="TGA 잔고", price_unit="$B", price_decimals=0,
+        osc_legend="SOFR (%)", osc2_legend="IORB (%)", price_legend="TGA 잔고 ($B)",
+        osc_color="#2f6fd0", osc2_color="#d97706", price_color="#8a8f98", osc2_warn=True,
+        note="빨간 음영 = SOFR 이 IORB(지준 이자율) 위 — 은행 지준이 빠듯하다는 경고 신호. "
+             "TGA 가 늘면 그만큼 시중 유동성이 흡수된다.",
+        card_url="https://fred.stlouisfed.org/series/SOFR")
 
     jobs["rate_hy_combo"] = dict(
         fn=(lambda: rate_hy_combo(prev.get("rate_hy_combo", {}).get("data"),

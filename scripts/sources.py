@@ -327,6 +327,14 @@ SP500_LIST_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 NDX_LIST_URL = "https://api.nasdaq.com/api/quote/list-type/nasdaq100"
 
 # ─────────────────────────────────────────────────────────────
+# 유동성 카드: SOFR·IORB + TGA 잔고. IORB 는 2021-07-29 부터 있는 금리라 그 뒤 첫 해부터.
+# ─────────────────────────────────────────────────────────────
+LIQ_START = "2022-01-01"
+TGA_DTS_URL = ("https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/"
+               "accounting/dts/operating_cash_balance")
+LIQ_SPREAD_DANGER_BP = 10   # SOFR 가 IORB 보다 0bp 초과면 경고, 이만큼(bp) 이상이면 '위험' 문구
+
+# ─────────────────────────────────────────────────────────────
 # 한국 SIO (종목군 과매도/과매수) — 그날 종목군 안에서 상승·하락 쪽으로 거래량과 등락폭이
 # 얼마나 쏠렸는지(-100% ~ +100%). 상승 종목의 거래량 비중과 상승폭 비중의 평균을 '상승 평균',
 # 하락 쪽도 같은 방식으로 '하락 평균'을 구해 더 큰 쪽을 부호와 함께 쓴다.
@@ -355,7 +363,7 @@ LAYOUT = [
         "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc",
         "spx_drawdown", "ndx_drawdown", "ndx_rsi", "dip_qqq", "dip_spy", "vix",
         "ust10y", "rate_hy_combo", "yc_10y2y",
-        "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
+        "us_cpi_yoy", "real_policy_rate", "liquidity_combo", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "dip_kospi", "dip_kosdaq", "kospi_heat", "vkospi",
                                   "kospi_drawdown", "kosdaq_drawdown", "kospi_rsi",
