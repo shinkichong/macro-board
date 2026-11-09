@@ -2521,7 +2521,7 @@ def build_jobs(prev: dict, series: dict) -> dict:
         freq="daily", source="Yahoo Finance / Stooq (추세추종 복제 모델)", source_url="",
         kind="dual", price_label="나스닥지수", price_unit="", price_decimals=0,
         osc_legend="CTA 포지션 (-100 숏 ~ +100 롱)", price_legend="나스닥지수",
-        osc_color="var(--ink)", osc_width=1.8, fixed_period_months=12, note="")
+        osc_color="var(--ink)", osc_width=1.8, fixed_period_months=24, note="")
 
     # Buy-the-Dip 점수 재료 (LAYOUT 에는 없는 내부 전용 시리즈)
     for key, sym in (("spy", "SPY"), ("qqq", "QQQ")):
