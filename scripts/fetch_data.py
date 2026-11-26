@@ -2514,14 +2514,18 @@ def build_jobs(prev: dict, series: dict) -> dict:
             osc_color="var(--ink)", osc_width=1.8, fixed_period_months=12,
             note="70 이상 과매수, 30 이하 과매도")
 
-    jobs["ndx_cta"] = dict(
-        fn=(lambda: cta_position(series, prev, "ndx", "나스닥 CTA 포지션")),
-        name="나스닥 CTA 포지션 추정 · 나스닥지수", unit="", decimals=0, delta_unit="p",
-        threshold=None, below_is=None, osc_ref=[0], osc_range=[-100, 100],
-        freq="daily", source="Yahoo Finance / Stooq (추세추종 복제 모델)", source_url="",
-        kind="dual", price_label="나스닥지수", price_unit="", price_decimals=0,
-        osc_legend="CTA 포지션 (-100 숏 ~ +100 롱)", price_legend="나스닥지수",
-        osc_color="var(--ink)", osc_width=1.8, fixed_period_months=24, note="")
+    # 코스피도 같은 모델·같은 목표 변동성으로 계산한다. 실제 CTA 는 자산 구분 없이 목표
+    # 변동성으로 비중을 맞추므로, 변동성이 큰 코스피 값이 작게 나오는 것은 의도된 동작이다.
+    for mkt, idx_name, src in (("ndx", "나스닥", "Yahoo Finance / Stooq"),
+                               ("kospi", "코스피", "KRX / Yahoo Finance")):
+        jobs[f"{mkt}_cta"] = dict(
+            fn=(lambda m=mkt, n=idx_name: cta_position(series, prev, m, f"{n} CTA 포지션")),
+            name=f"{idx_name} CTA 포지션 추정 · {idx_name}지수", unit="", decimals=0, delta_unit="p",
+            threshold=None, below_is=None, osc_ref=[0], osc_range=[-100, 100],
+            freq="daily", source=f"{src} (추세추종 복제 모델)", source_url="",
+            kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
+            osc_legend="CTA 포지션 (-100 숏 ~ +100 롱)", price_legend=f"{idx_name}지수",
+            osc_color="var(--ink)", osc_width=1.8, fixed_period_months=24, note="")
 
     # Buy-the-Dip 점수 재료 (LAYOUT 에는 없는 내부 전용 시리즈)
     for key, sym in (("spy", "SPY"), ("qqq", "QQQ")):

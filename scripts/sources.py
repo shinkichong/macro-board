@@ -341,6 +341,8 @@ LIQ_START = "2022-01-01"
 
 # CTA 포지션 추정: 추세 기간(거래일, 약 1·3·6·12개월)과 목표 변동성(연율).
 # 2008~2026 나스닥 종합으로 확인: 2022 약세장 최저 -51, 2025-04 관세 급락 -32, 2024-08 엔캐리 -2.
+# 코스피(2002~2026): 2022-09 -73, 2025-04 -52, 2020-03 -47. 구간별 이후 1주~3개월 수익률 차이는
+# 거의 없어(강한 숏 ≤-50 만 3개월 평균 0% vs 전체 +2.8%) 예측용이 아닌 추세·수급 상태 참고용.
 CTA_LOOKBACKS = (20, 60, 120, 250)
 CTA_TARGET_VOL = .15
 TGA_DTS_URL = ("https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/"
@@ -379,7 +381,7 @@ LAYOUT = [
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "dip_kospi", "dip_kosdaq", "kospi_heat", "vkospi",
-                                  "kospi_drawdown", "kosdaq_drawdown", "kospi_rsi",
+                                  "kospi_drawdown", "kosdaq_drawdown", "kospi_rsi", "kospi_cta",
                                   "kospi_credit_combo", "kosdaq_credit_combo", "kr_sio", "kospi200_pcr", "kr_exports_yoy"]),
 ]
 
