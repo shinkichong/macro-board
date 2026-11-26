@@ -345,6 +345,17 @@ LIQ_START = "2022-01-01"
 # 거의 없어(강한 숏 ≤-50 만 3개월 평균 0% vs 전체 +2.8%) 예측용이 아닌 추세·수급 상태 참고용.
 CTA_LOOKBACKS = (20, 60, 120, 250)
 CTA_TARGET_VOL = .15
+# S&P 500 Forward PER 카드: SPY 운용사(State Street) 공식 페이지의 'Index Characteristics'
+# 표에 있는 Price/Earnings Ratio FY1(FactSet 컨센서스, 당해 회계연도 기준)을 매일 받아 쌓는다.
+# 페이지에는 그날 값 하나뿐이라 과거치는 data/spx_fwd_pe_seed.json(Wayback 저장본에서 뽑은 값)으로 채운다.
+SPX_FWD_PE_URL = "https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy"
+SPX_FWD_PE_STALE_DAYS = 28   # PER 기준일이 이보다 오래되면 카드에 '갱신 필요'
+
+# 달러인덱스 카드: 60거래일 변화가 +3% 이상이거나 수준이 105 이상이면 경고 (근거는 dollar_index() 주석).
+DXY = dict(yahoo="DX-Y.NYB", stooq="dx.f")
+DXY_TREND_DAYS = 60
+DXY_WARN_CHANGE = 3.0
+DXY_WARN_LEVEL = 105.0
 TGA_DTS_URL = ("https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/"
                "accounting/dts/operating_cash_balance")
 LIQ_SPREAD_DANGER_BP = 10   # SOFR 가 IORB 보다 0bp 초과면 경고, 이만큼(bp) 이상이면 '위험' 문구
@@ -377,7 +388,7 @@ LAYOUT = [
     dict(group="미국 시장", keys=[
         "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc",
         "spx_drawdown", "ndx_drawdown", "ndx_rsi", "dip_qqq", "dip_spy", "vix", "ndx_cta",
-        "ust10y", "rate_hy_combo", "yc_10y2y", "liquidity_combo",
+        "ust10y", "spx_fwd_pe", "rate_hy_combo", "yc_10y2y", "liquidity_combo", "dxy",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
     dict(group="국내 시장", keys=["kospi", "kosdaq", "kospi_fg_osc", "dip_kospi", "dip_kosdaq", "kospi_heat", "vkospi",

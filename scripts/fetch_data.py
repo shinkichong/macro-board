@@ -1491,6 +1491,74 @@ def cta_position(series: dict, prev: dict, index_key: str, label: str) -> tuple[
     }
 
 
+SPX_FWD_PE_SEED = ROOT / "data" / "spx_fwd_pe_seed.json"
+
+
+def dollar_index(series: dict, prev: dict) -> tuple[list[list], dict]:
+    """달러인덱스(DXY) + S&P 500 카드.
+    2001~2026 검증: 달러가 60거래일에 +3% 넘게 오른 뒤 S&P 이후 60일 평균 +0.7%(평소 +2.4%),
+    DXY 105 이상에서 이후 6개월 평균 -1.0%(100~105 는 +8.7%). 둘 중 하나면 경고 표시."""
+    rows = index_series(S.DXY, prev_data=prev.get("dxy", {}).get("data"))
+    spx = series.get("spx", {}).get("data") or prev.get("spx", {}).get("data") or []
+    d_now, v_now = rows[-1]
+    chg = (v_now / rows[-1 - S.DXY_TREND_DAYS][1] - 1) * 100
+    warn = chg >= S.DXY_WARN_CHANGE or v_now >= S.DXY_WARN_LEVEL
+    start = rows[-min(len(rows), 1300)][0]   # 화면 2년 + 여유
+    return rows, {
+        "price_data": [[d, v] for d, v in spx if d >= start],
+        "summary_tag": [f"60일 {chg:+.1f}%"] + (["달러 강세 주의"] if warn else []),
+        "summary_state": "bad" if warn else "neutral",
+        "note": f"달러인덱스 {v_now:.2f} (60일 {chg:+.1f}%), "
+                f"60일 +{S.DXY_WARN_CHANGE:.0f}% 이상 또는 {S.DXY_WARN_LEVEL:.0f} 이상 주의",
+    }
+
+
+def parse_ssga_index_pe(page: str) -> tuple[str, float] | None:
+    """SSGA SPY 페이지의 'Index Characteristics' 표에서 (기준일, Price/Earnings Ratio FY1).
+    같은 이름의 행이 펀드 표에도 있어서 반드시 지수 표 구간 안에서 찾는다."""
+    i = page.find("Index Characteristics")
+    if i < 0:
+        return None
+    sec = page[i:i + 8000]
+    d = re.search(r"as of\s*(?:<[^>]+>\s*)*([A-Z][a-z]{2}) (\d{1,2}) (\d{4})", sec)
+    # 라벨 칸이 <th>(2026~) 또는 <td>(2025 이전) — 둘 다 받는다.
+    v = re.search(r'Price/Earnings Ratio FY1\s*</t[hd]>\s*<td class="data">\s*([\d.,]+)', sec)
+    if not (d and v):
+        return None
+    day = datetime.strptime(" ".join(d.groups()), "%b %d %Y").strftime("%Y-%m-%d")
+    return day, float(v.group(1).replace(",", ""))
+
+
+def spx_forward_pe(series: dict, prev: dict) -> tuple[list[list], dict]:
+    """S&P 500 Forward PER(FY1) 카드. 오늘 값을 받아 직전 이력·시드에 덧붙인다.
+    페이지 구조가 바뀌어 못 읽으면 예외 → 직전 이력 유지 + stale 배지.
+    과거 구간(시드)은 대략 2주에 한 점이라 선이 그 점들을 잇고, 이후로는 매일 쌓인다."""
+    rows = {d: v for d, v in (prev.get("spx_fwd_pe", {}).get("data") or [])}
+    if SPX_FWD_PE_SEED.exists():
+        for d, v in json.loads(SPX_FWD_PE_SEED.read_text(encoding="utf-8")):
+            rows.setdefault(d, v)
+    got = parse_ssga_index_pe(get(S.SPX_FWD_PE_URL).text)
+    if not got:
+        raise RuntimeError("SSGA 페이지에서 지수 Forward PER 을 찾지 못했습니다 (페이지 구조 변경?)")
+    if not 5 < got[1] < 60:
+        raise RuntimeError(f"Forward PER 값이 비정상입니다: {got}")
+    rows[got[0]] = got[1]
+    out = [[d, rows[d]] for d in sorted(rows)]
+
+    spx = series.get("spx", {}).get("data") or prev.get("spx", {}).get("data") or []
+    pe_day, pe_now = out[-1]
+    age = (date.today() - date.fromisoformat(pe_day)).days
+    extra = {
+        "price_data": [[d, v] for d, v in spx if d >= out[0][0]],
+        "summary_tag": [f"{pe_day[5:].replace('-', '/')} 기준"]
+                       + (["PER 갱신 필요"] if age > S.SPX_FWD_PE_STALE_DAYS else []),
+        "note": f"Forward PER {pe_now:.2f}배 ({pe_day} 기준), 18배 이하 투자하기 좋음",
+    }
+    if age > S.SPX_FWD_PE_STALE_DAYS:
+        extra["stale"] = True
+    return out, extra
+
+
 def _wilder_rsi(vals: list[float], period: int = RSI_PERIOD) -> list[float | None]:
     """Wilder 평활 RSI. 앞쪽 period 개는 None."""
     out: list[float | None] = [None] * len(vals)
@@ -2526,6 +2594,25 @@ def build_jobs(prev: dict, series: dict) -> dict:
             kind="dual", price_label=f"{idx_name}지수", price_unit="", price_decimals=0,
             osc_legend="CTA 포지션 (-100 숏 ~ +100 롱)", price_legend=f"{idx_name}지수",
             osc_color="var(--ink)", osc_width=1.8, fixed_period_months=24, note="")
+
+    # S&P 500 Forward PER: spx 가 위에서 먼저 갱신된 뒤 계산돼야 해서 이 자리에 둔다.
+    jobs["spx_fwd_pe"] = dict(
+        fn=(lambda: spx_forward_pe(series, prev)),
+        name="S&P 500 Forward PER · S&P 500", unit="배", decimals=2, delta_unit="배",
+        threshold=None, below_is=None, freq="daily",
+        source="State Street SPY 페이지 (FactSet 컨센서스, FY1)", source_url=S.SPX_FWD_PE_URL,
+        kind="dual", price_label="S&P 500", price_unit="", price_decimals=0,
+        osc_legend="Forward PER (배)", price_legend="S&P 500",
+        osc_color="var(--ink)", osc_width=1.8, fixed_period_months=24)
+
+    jobs["dxy"] = dict(
+        fn=(lambda: dollar_index(series, prev)),
+        name="달러인덱스 · S&P 500", unit="", decimals=2, delta_unit="",
+        threshold=None, below_is=None, osc_ref=[S.DXY_WARN_LEVEL], freq="daily",
+        source="Yahoo Finance (DX-Y.NYB)", source_url="https://finance.yahoo.com/quote/DX-Y.NYB/",
+        kind="dual", price_label="S&P 500", price_unit="", price_decimals=0,
+        osc_legend="달러인덱스", price_legend="S&P 500",
+        osc_color="var(--ink)", osc_width=1.8, fixed_period_months=24)
 
     # Buy-the-Dip 점수 재료 (LAYOUT 에는 없는 내부 전용 시리즈)
     for key, sym in (("spy", "SPY"), ("qqq", "QQQ")):
