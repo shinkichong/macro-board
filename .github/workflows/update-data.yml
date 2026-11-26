@@ -13,9 +13,10 @@ on:
     # 21:17 / 22:23 UTC → 화~토 06:17 / 07:23 KST 에 찍힌다.
     - cron: "17 21 * * 1-5"
     - cron: "23 22 * * 1-5"
-    # 국내 데이터: 평일 KST 약 21:14 = UTC 12:14
+    # 국내 데이터: 평일 KST 약 14:14 = UTC 05:14
     # (22:43 재시도는 아래 13:13 앞당긴 실행이 저녁 수집을 맡게 되어 2026-11 제거)
-    - cron: "14 12 * * 1-5"
+    # (2026-11 에 21:14 → 14:14 로 앞당김 — 스케줄 지연을 감안해 저녁 무렵 도착을 노림)
+    - cron: "14 5 * * 1-5"
     # 국내 추가 수집: 화~토 KST 약 10:07 = UTC 01:07 (같은 날짜).
     # KRX 오픈API(VKOSPI·옵션 PCR·국채선물)는 당일 값을 다음 날 오전(관측상 09:30 전후)에야
     # 내주는데, 저녁 실행은 GitHub 지연으로 새벽에 돌아 그 전에 끝난다 — 아침에 한 번 더 받는다.
@@ -76,7 +77,7 @@ jobs:
           GROUP="${{ github.event.inputs.group }}"
           case "${{ github.event.schedule }}" in
             "17 21 * * 1-5"|"23 22 * * 1-5"|"23 15 * * 1-5") python scripts/fetch_data.py --group "미국 시장" ;;
-            "14 12 * * 1-5"|"7 1 * * 2-6"|"13 4 * * 1-5") python scripts/fetch_data.py --group "국내 시장" ;;
+            "14 5 * * 1-5"|"7 1 * * 2-6"|"13 4 * * 1-5") python scripts/fetch_data.py --group "국내 시장" ;;
             *)
               if [ -n "$GROUP" ] && [ "$GROUP" != "전체" ]; then
                 python scripts/fetch_data.py --group "$GROUP"
