@@ -1513,6 +1513,63 @@ def dollar_index(series: dict, prev: dict) -> tuple[list[list], dict]:
     }
 
 
+US_PCR_SEED = ROOT / "data" / "us_total_pcr_seed.json"
+
+
+def us_total_pcr(series: dict, prev: dict) -> tuple[list[list], dict]:
+    """미국 전체(Total) 풋콜레이쇼(CBOE) 5일 평균 + S&P 500 카드.
+    하루치 원값은 카드 항목의 raw 에 쌓고(과거치는 시드 파일), 마지막 날 다음 평일부터
+    오늘까지만 새로 받는다. 휴장일·장중엔 CBOE 가 403 이라 그날은 건너뛴다.
+    2011~2026 검증: 5일 평균이 최근 1년 상위 20%(공포)일 때 이후 20일 S&P 평균 +1.3%,
+    하위 20%(탐욕) +0.2%(평소 +0.8%) — 두 기간 모두 같은 방향이지만 차이는 작아 보조 지표."""
+    raw = {}
+    if US_PCR_SEED.exists():
+        raw.update({d: v for d, v in json.loads(US_PCR_SEED.read_text(encoding="utf-8"))})
+    raw.update({d: v for d, v in (prev.get("us_total_pcr", {}).get("raw") or [])})
+    got = 0
+    for day in _business_days_since(max(raw))[-30:]:
+        try:
+            r = session.get(S.US_PCR_URL.format(day=day), timeout=TIMEOUT)
+        except requests.RequestException:
+            continue
+        if r.status_code != 200:
+            continue
+        ratios = {x.get("name"): x.get("value") for x in r.json().get("ratios", [])}
+        v = float(ratios.get("TOTAL PUT/CALL RATIO") or 0)
+        if 0.2 < v < 5:
+            raw[day] = v
+            got += 1
+        time.sleep(0.3)
+    print(f"    CBOE 에서 {got}일치 추가", flush=True)
+
+    days = sorted(raw)
+    avg = [[d, round(sum(raw[x] for x in days[i - 4:i + 1]) / 5, 3)] for i, d in enumerate(days) if i >= 4]
+    win = [v for _, v in avg[-1 - S.US_PCR_WINDOW:-1]]
+    d_now, v_now = avg[-1]
+    pct = sum(x < v_now for x in win) / len(win) * 100
+    lo, hi = sorted(win)[int(len(win) * .2)], sorted(win)[int(len(win) * .8)]
+    if pct >= 80:
+        tag, state = "공포 구간", "good"
+    elif pct <= 20:
+        tag, state = "탐욕 구간", "bad"
+    else:
+        tag, state = "보통", "neutral"
+    age = (date.today() - date.fromisoformat(d_now)).days
+    spx = series.get("spx", {}).get("data") or prev.get("spx", {}).get("data") or []
+    extra = {
+        "raw": [[d, raw[d]] for d in days[-600:]],
+        "osc_ref": [round(lo, 3), round(hi, 3)],
+        "price_data": [[d, v] for d, v in spx if d >= avg[0][0]],
+        "summary_tag": [f"1년 중 {pct:.0f}%", tag],
+        "summary_state": state,
+        "note": f"풋콜레이쇼 5일 평균 {v_now:.2f} ({d_now} 기준), "
+                f"1년 상위 20%({hi:.2f} 이상) 공포·매수 참고, 하위 20%({lo:.2f} 이하) 탐욕 주의",
+    }
+    if age > 7:
+        extra["stale"] = True
+    return avg, extra
+
+
 def parse_ssga_index_pe(page: str) -> tuple[str, float] | None:
     """SSGA SPY 페이지의 'Index Characteristics' 표에서 (기준일, Price/Earnings Ratio FY1).
     같은 이름의 행이 펀드 표에도 있어서 반드시 지수 표 구간 안에서 찾는다."""
@@ -2612,6 +2669,16 @@ def build_jobs(prev: dict, series: dict) -> dict:
         source="Yahoo Finance (DX-Y.NYB)", source_url="https://finance.yahoo.com/quote/DX-Y.NYB/",
         kind="dual", price_label="S&P 500", price_unit="", price_decimals=0,
         osc_legend="달러인덱스", price_legend="S&P 500",
+        osc_color="var(--ink)", osc_width=1.8, fixed_period_months=24)
+
+    jobs["us_total_pcr"] = dict(
+        fn=(lambda: us_total_pcr(series, prev)),
+        name="미국 풋콜레이쇼 (전체, 5일 평균) · S&P 500", unit="", decimals=2, delta_unit="",
+        threshold=None, below_is=None, freq="daily",
+        source="CBOE 일별 옵션 통계 (Total Put/Call)",
+        source_url="https://www.cboe.com/us/options/market_statistics/daily/",
+        kind="dual", price_label="S&P 500", price_unit="", price_decimals=0,
+        osc_legend="풋콜레이쇼 5일 평균", price_legend="S&P 500",
         osc_color="var(--ink)", osc_width=1.8, fixed_period_months=24)
 
     # Buy-the-Dip 점수 재료 (LAYOUT 에는 없는 내부 전용 시리즈)

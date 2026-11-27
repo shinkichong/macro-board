@@ -356,6 +356,11 @@ DXY = dict(yahoo="DX-Y.NYB", stooq="dx.f")
 DXY_TREND_DAYS = 60
 DXY_WARN_CHANGE = 3.0
 DXY_WARN_LEVEL = 105.0
+
+# 미국 전체 풋콜레이쇼 카드: CBOE 일별 통계 JSON(날짜별 1파일). 5일 평균을 직전 1년(252일)
+# 분포와 비교해 상위 20% 공포(초록)·하위 20% 탐욕(빨강). 과거치는 data/us_total_pcr_seed.json.
+US_PCR_URL = "https://cdn.cboe.com/data/us/options/market_statistics/daily/{day}_daily_options"
+US_PCR_WINDOW = 252
 TGA_DTS_URL = ("https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/"
                "accounting/dts/operating_cash_balance")
 LIQ_SPREAD_DANGER_BP = 10   # SOFR 가 IORB 보다 0bp 초과면 경고, 이만큼(bp) 이상이면 '위험' 문구
@@ -387,7 +392,7 @@ SIO_BOTTOM_DAYS = 5         # 과매도 뒤 이 거래일 안에 과매수로 �
 LAYOUT = [
     dict(group="미국 시장", keys=[
         "spx", "ndx", "fear_greed", "spx_fg_osc", "ndx_fg_osc",
-        "spx_drawdown", "ndx_drawdown", "ndx_rsi", "dip_qqq", "dip_spy", "vix", "ndx_cta",
+        "spx_drawdown", "ndx_drawdown", "ndx_rsi", "dip_qqq", "dip_spy", "vix", "us_total_pcr", "ndx_cta",
         "ust10y", "spx_fwd_pe", "rate_hy_combo", "yc_10y2y", "liquidity_combo", "dxy",
         "us_cpi_yoy", "real_policy_rate", "global_m2_yoy", "oecd_cli", "ism_pmi",
     ]),
